@@ -14,18 +14,11 @@ module Engine
           def lay_tile(action, extra_cost: 0, entity: nil, spender: nil)
             tile = action.tile
             case tile.name
-            when '921'
+            when '921', '922'
               corp = @game.company_by_id('FL')
               corp.revenue += 10
               @log << 'FL revenue +10'
-            when '922'
-              corp = @game.company_by_id('FL')
-              corp.revenue += 10
-              @log << 'FL revenue +10'
-            when '923'
-              corp = @game.company_by_id('FL')
-              corp.revenue += 10
-            when '924'
+            when '923', '924'
               corp = @game.company_by_id('FL')
               corp.revenue += 10
             end

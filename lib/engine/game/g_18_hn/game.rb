@@ -440,11 +440,10 @@ module Engine
           count == visits.size
         end
         # modify to include variable value cities and route bonus
-        
+
         def revenue_for(route, stops)
           stops.sum { |stop| stop.route_revenue(route.phase, route.train) } +
-            connection_bonus(route, stops) 
-
+            connection_bonus(route, stops)
         end
 
         def connection_bonus(route, _stops)
