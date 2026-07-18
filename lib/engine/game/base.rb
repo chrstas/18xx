@@ -777,6 +777,11 @@ module Engine
         player
       end
 
+      # whether two owners should be treated as one controller for cross-buy display
+      def same_effective_owner?(_owner_a, _owner_b)
+        false
+      end
+
       def player_log(entity, msg)
         @log << "-- #{msg}" if entity.id == @user
       end
