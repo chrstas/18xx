@@ -33,6 +33,8 @@ module Engine
         RIGHT_COST = 40
         MUST_BUY_TRAIN = :always
 
+        CORPORATION_CLASS = G18HN::Corporation
+
         CORPORATIONS_OPERATING_RIGHTS = {
           'FWN' => %w[KAS WAL],
           'FHB' => 'KAS',
@@ -46,14 +48,15 @@ module Engine
           'VB' => 'DAR',
         }.freeze
 
+        CONCESSION_REGIONS = { 'WC' => 'WAL', 'HKC' => 'KAS', 'NC' => 'NAS', 'HDC' => 'DAR' }.freeze
+
         NATIONAL_REGION_HEXES = {
           'KAS' => %w[A18 B17 C16 C18 C20 D17 D19 D21 E14 E16 E18 E20 F13 F15 F19 F21 G20 H19 I16 I18 J15],
-          'HKC' => %w[A18 B17 C16 C18 C20 D17 D19 D21 E14 E16 E18 E20 F13 F15 F19 F21 G20 H19 I16 I18 J15],
-          'WAL' => %w[B15 C12 C14 D13 D15],
-          'DAR' => %w[f11 F17 G12 G14 G16 G18 H11 H13 H15 H17 I12 I14 K4 K6 K8 K10 K12 K14 L5 L7 L9 L11 L13 M6 M8 M10 M12 N7 N9
+          'WAL' => %w[B15 C12 C14 D13 D15 E12],
+          'DAR' => %w[F11 F17 G12 G14 G16 G18 H11 H13 H15 H17 I12 I14 K4 K6 K8 K10 K12 K14 L5 L7 L9 L11 L13 M6 M8 M10 M12 N7 N9
                       N11 N13 O12],
-          'NAS' => %w[F5 F7 F9 F11 G4 G6 G8 H3 H5 H7 H9 I4 I6 I8 J5 J7 J9],
-          'ALL' => %w[B11 B19 E10 E22 F23 G22 G2 G10 J3 J11 J13 K16 N5 O8 O10],
+          'NAS' => %w[F5 F7 F9 G4 G6 G8 H3 H5 H7 H9 I4 I6 I8 J5 J7 J9],
+          'ALL' => %w[B11 B19 E10 E22 F23 G22 G2 G10 H1 I2 I10 J3 J11 J13 K16 N5 O6 O8 O10],
         }.freeze
 
         MARKET = [
@@ -185,10 +188,6 @@ module Engine
           false
         end
 
-        def umtausch?(entity)
-          umtausch.include?(entity)
-        end
-
         def nassau
           @nassau ||= company_by_id('NC')
         end
@@ -232,24 +231,29 @@ module Engine
           end
         end
 
+        # tracked explicitly: corporations start with same-named exchange abilities
+        def granted_right?(corporation, concession_id)
+          @granted_rights[corporation.id].include?(concession_id)
+        end
+
         def nassau?(corporation)
-          corporation.all_abilities.any? { |ability| ability.description.include?('Nassau') }
+          granted_right?(corporation, 'NC')
         end
 
         def darmstadt?(corporation)
-          corporation.all_abilities.any? { |ability| ability.description.include?('Darmstadt') }
+          granted_right?(corporation, 'HDC')
         end
 
         def kassel?(corporation)
-          corporation.all_abilities.any? { |ability| ability.description.include?('Kassel') }
+          granted_right?(corporation, 'HKC')
         end
 
         def waldeck?(corporation)
-          corporation.all_abilities.any? { |ability| ability.description.include?('Waldeck') }
+          granted_right?(corporation, 'WC')
         end
 
         def frankfurt?(corporation)
-          corporation.all_abilities.any? { |ability| ability.description.include?('Frankfurt') }
+          granted_right?(corporation, 'FC')
         end
 
         def buy_nassau_right(entity)
@@ -297,44 +301,47 @@ module Engine
           grant_right(entity, frankfurt)
         end
 
-        def grant_right(corporation, type)
+        def grant_right(corporation, concession_company)
+          @granted_rights[corporation.id] << concession_company.id
           ability = Ability::Base.new(
-            type: 'consession',
-            description: type.name.to_s,
-            corporations: type.id,
+            type: 'base',
+            description: "#{concession_company.name} Rights",
           )
           corporation.add_ability(ability)
-          @log << "#{corporation.name} claims the #{type.name}"
+          @log << "#{corporation.name} claims the #{concession_company.name}"
+        end
+
+        def can_buy_right?(entity, concession_id)
+          return false unless entity.corporation?
+          return false if granted_right?(entity, concession_id)
+
+          concession = company_by_id(concession_id)
+          return false if concession.nil? || concession.closed? || concession.owner.nil?
+
+          region = self.class::CONCESSION_REGIONS[concession_id]
+          return false if region && operating_rights(entity).include?(region)
+
+          buying_power(entity) >= RIGHT_COST
         end
 
         def can_buy_nassau_right?(entity)
-          return false unless entity.corporation?
-
-          !nassau?(entity) && buying_power(entity) >= RIGHT_COST
+          can_buy_right?(entity, 'NC')
         end
 
         def can_buy_darmstadt_right?(entity)
-          return false unless entity.corporation?
-
-          !darmstadt?(entity) && buying_power(entity) >= RIGHT_COST
+          can_buy_right?(entity, 'HDC')
         end
 
         def can_buy_kassel_right?(entity)
-          return false unless entity.corporation?
-
-          !kassel?(entity) && buying_power(entity) >= RIGHT_COST
+          can_buy_right?(entity, 'HKC')
         end
 
         def can_buy_waldeck_right?(entity)
-          return false unless entity.corporation?
-
-          !waldeck?(entity) && buying_power(entity) >= RIGHT_COST
+          can_buy_right?(entity, 'WC')
         end
 
         def can_buy_frankfurt_right?(entity)
-          return false unless entity.corporation?
-
-          !frankfurt?(entity) && buying_power(entity) >= RIGHT_COST
+          can_buy_right?(entity, 'FC')
         end
 
         def init_starting_cash(players, bank)
@@ -347,6 +354,11 @@ module Engine
         def setup_preround
           # Make sure the start player order is randomized
           @players.sort_by! { rand }
+        end
+
+        def setup
+          super
+          @granted_rights = Hash.new { |h, k| h[k] = Set.new }
         end
 
         def new_auction_round
@@ -383,9 +395,12 @@ module Engine
 
         def operating_round(round_num)
           Round::Operating.new(self, [
+            Engine::Step::Bankrupt,
+            Engine::Step::Exchange,
             G18HN::Step::SpecialBuy,
-            G18HN::Step::Track,
             Engine::Step::SpecialTrack,
+            Engine::Step::HomeToken,
+            G18HN::Step::Track,
             G18HN::Step::Token,
             G18HN::Step::Route,
             Engine::Step::Dividend,
@@ -398,19 +413,10 @@ module Engine
           self.class::NATIONAL_REGION_HEXES[corporation_id].dup
         end
 
-        def operating_right(corporation)
-          # im feld corporations stehen die einzelnen konzessionen (pro konzession eine ability).
-          # diese müssen ausgelesen werden und dann erfolgt der Abgleich hex_operating_rights?
-          # abilities will return an array if many or an Ability if one. [*foo(bar)] gets around that
-          corporation.all_abilities.select(&:corporations)
-          #          corporation.abilities.flat_map { |a| a.corporations.any? }
-        end
-
         def operating_rights(entity)
-          # welche concession hat die Gesellchaft
-          rights = self.class::CORPORATIONS_OPERATING_RIGHTS[entity.id]
-          corporation_rights = rights.is_a?(Array) ? rights.dup : [rights]
-          corporation_rights.uniq
+          rights = Array(self.class::CORPORATIONS_OPERATING_RIGHTS[entity.id])
+          rights += @granted_rights[entity.id].filter_map { |id| self.class::CONCESSION_REGIONS[id] }
+          (rights + ['ALL']).uniq
         end
 
         def hex_operating_rights?(entity, hex)
@@ -432,19 +438,14 @@ module Engine
           nationals = operating_rights(entity)
 
           count = visits.count do |v|
-            nationals.any? do |national|
-              national_hexes(national).include?(v.hex.name) || national_hexes('ALL').include?(v.hex.name)
-            end
+            nationals.any? { |national| national_hexes(national).include?(v.hex.name) }
           end
 
           count == visits.size
         end
-        # modify to include variable value cities and route bonus
-        
-        def revenue_for(route, stops)
-          stops.sum { |stop| stop.route_revenue(route.phase, route.train) } +
-            connection_bonus(route, stops) 
 
+        def revenue_for(route, stops)
+          stops.sum { |stop| stop.route_revenue(route.phase, route.train) } + connection_bonus(route, stops)
         end
 
         def connection_bonus(route, _stops)

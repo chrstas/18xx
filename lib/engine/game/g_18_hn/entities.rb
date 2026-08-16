@@ -130,7 +130,7 @@ module Engine
               {
                 type: 'token',
                 owner_type: 'player',
-                hexes: 'G20',
+                hexes: ['J15'],
                 when: 'any',
                 count: 1,
               },
