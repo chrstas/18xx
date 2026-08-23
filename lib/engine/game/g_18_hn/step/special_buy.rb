@@ -9,6 +9,12 @@ module Engine
         class SpecialBuy < Engine::Step::SpecialBuy
           attr_reader :nassau_item, :darmstadt_item, :kassel_item, :waldeck_item, :frankfurt_item
 
+          def actions(entity)
+            return [] unless entity == current_entity
+
+            super
+          end
+
           def buyable_items(entity)
             items = []
             items << @nassau_item if @game.can_buy_nassau_right?(entity)

@@ -549,7 +549,7 @@ module Engine
                   },
                 },
               }, {
-                text: '+20',
+                text: '+10',
                 props: {
                   style: {
                     textAlign: 'right',

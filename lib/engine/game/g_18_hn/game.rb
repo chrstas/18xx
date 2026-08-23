@@ -14,7 +14,7 @@ module Engine
         include G18HN::Entities
         include G18HN::Map
 
-        GAME_END_CHECK = { bankrupt: :immediate, bank: :current_or }.freeze
+        GAME_END_CHECK = { bankrupt: :immediate, bank: :full_or }.freeze
 
         CURRENCY_FORMAT_STR = '%sM'
 
@@ -26,7 +26,7 @@ module Engine
 
         SELL_BUY_ORDER = :sell_buy
 
-        CERT_LIMIT = { 3 => 29, 4 => 21, 5 => 17 }.freeze
+        CERT_LIMIT = { 3 => 28, 4 => 21, 5 => 17 }.freeze
 
         HOME_TOKEN_TIMING = :operate
 
@@ -36,12 +36,12 @@ module Engine
         CORPORATION_CLASS = G18HN::Corporation
 
         CORPORATIONS_OPERATING_RIGHTS = {
-          'FWN' => %w[KAS WAL],
+          'FWN' => 'KAS',
           'FHB' => 'KAS',
           'LTB' => 'NAS',
           'WEG' => 'NAS',
-          'MWB' => %w[KAS DAR],
-          'WLB' => %w[WAL KAS],
+          'MWB' => 'KAS',
+          'WLB' => 'WAL',
           'SB' => 'DAR',
           'HLB' => 'DAR',
           'MNB' => 'DAR',
@@ -49,6 +49,12 @@ module Engine
         }.freeze
 
         CONCESSION_REGIONS = { 'WC' => 'WAL', 'HKC' => 'KAS', 'NC' => 'NAS', 'HDC' => 'DAR' }.freeze
+
+        CONCESSIONS = %w[WC HKC NC HDC FC].freeze
+
+        FRANKFURT_HEXES = %w[J11 J13].freeze
+
+        TOKEN_BLOCKED_HEXES = %w[J11 J13 G10].freeze
 
         NATIONAL_REGION_HEXES = {
           'KAS' => %w[A18 B17 C16 C18 C20 D17 D19 D21 E14 E16 E18 E20 F13 F15 F19 F21 G20 H19 I16 I18 J15],
@@ -424,6 +430,31 @@ module Engine
           nationals.any? { |national| national_hexes(national).include?(hex.name) }
         end
 
+        def token_blocked_hex?(hex)
+          self.class::TOKEN_BLOCKED_HEXES.include?(hex.name)
+        end
+
+        # in yellow and green phases only the FL private may build Frankfurt
+        def frankfurt_track_blocked?(hex)
+          self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
+        end
+
+        # the bank does not pay for the share reserved for a private
+        def float_corporation(corporation)
+          @log << "#{corporation.name} floats"
+          @bank.spend(corporation.par_price.price * corporation.total_ipo_shares, corporation)
+          @log << "#{corporation.name} receives #{format_currency(corporation.cash)}"
+        end
+
+        # reserved shares of unexchanged privates are ignored
+        def sold_out?(corporation)
+          corporation.player_share_holders.values.sum == 100 - corporation.reserved_shares.sum(&:percent)
+        end
+
+        def num_certs(entity)
+          super - entity.companies.count { |company| self.class::CONCESSIONS.include?(company.id) }
+        end
+
         def check_distance(route, visits)
           entity = route.corporation
 
@@ -455,15 +486,15 @@ module Engine
           LOGGER.debug { "connection_bonus >> visited_location_names: #{visited_location_names}" }
           revenue = 0
           revenue += 40 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Südwestfalen')
-          revenue += 80 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Ostwestfalen')
+          revenue += 70 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Ostwestfalen')
           revenue += 80 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Hannover')
           revenue += 70 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Thüringen')
           revenue += 60 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Franken')
           revenue += 40 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Baden')
           revenue += 30 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Pfalz')
-          revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Ostwestfalen')
+          revenue += 30 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Ostwestfalen')
           revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Hannover')
-          revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Thüringen')
+          revenue += 50 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Thüringen')
           revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Franken')
           revenue += 50 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Baden')
           revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Pfalz')

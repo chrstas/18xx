@@ -29,10 +29,15 @@ module Engine
           @floated = true
         end
 
+        # a reserved share exchanged for a private counts towards the float
         def percent_to_float
           return 0 if @floated
 
-          [@float_percent - (@percent_total_ipo_shares - percent_ipo_buyable), 0].max
+          [@float_percent - (100 - percent_ipo), 0].max
+        end
+
+        def percent_ipo
+          @ipo_owner.shares_by_corporation[self].sum(&:percent)
         end
 
         def percent_ipo_buyable

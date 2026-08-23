@@ -7,10 +7,6 @@ module Engine
     module G18HN
       module Step
         class Track < Engine::Step::Track
-          def actions(entity)
-            super
-          end
-
           def lay_tile(action, extra_cost: 0, entity: nil, spender: nil)
             if %w[921 922 923 924].include?(action.tile.name)
               @game.company_by_id('FL').revenue += 10
@@ -21,6 +17,13 @@ module Engine
 
           def available_hex(entity, hex)
             return nil unless @game.hex_operating_rights?(entity, hex)
+            return nil if @game.frankfurt_track_blocked?(hex)
+
+            super
+          end
+
+          def process_lay_tile(action)
+            raise GameError, 'Only the FL private may build in Frankfurt' if @game.frankfurt_track_blocked?(action.hex)
 
             super
           end
