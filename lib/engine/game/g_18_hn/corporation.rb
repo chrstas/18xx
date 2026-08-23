@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
+require_relative '../../corporation'
+
 module Engine
   module Game
     module G18HN
       class Corporation < Engine::Corporation
-        attr_accessor :concession
-
         def initialize(sym:, name:, **opts)
           ipo_shares = opts[:ipo_shares] || []
           reserved_shares = opts[:reserved_shares] || []

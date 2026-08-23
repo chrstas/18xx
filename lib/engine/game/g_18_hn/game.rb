@@ -52,6 +52,18 @@ module Engine
 
         CONCESSIONS = %w[WC HKC NC HDC FC].freeze
 
+        # transit bonus: each region pays its own row's value for the other region's direction
+        TRANSIT_REGIONS = {
+          'Pfalz' => { dir: :S, S: 10, N: 40, O: 30, W: 20 },
+          'Baden' => { dir: :S, S: 10, N: 40, O: 20, W: 30 },
+          'Hannover' => { dir: :N, S: 40, N: 20, O: 20, W: 20 },
+          'Ostwestfalen' => { dir: :N, S: 40, N: 10, O: 30, W: 10 },
+          'Südwestfalen' => { dir: :W, S: 20, N: 20, O: 20, W: 20 },
+          'Rheinland' => { dir: :W, S: 10, N: 60, O: 40, W: 20 },
+          'Thüringen' => { dir: :O, S: 30, N: 10, O: 20, W: 30 },
+          'Franken' => { dir: :O, S: 10, N: 40, O: 30, W: 20 },
+        }.freeze
+
         FRANKFURT_HEXES = %w[J11 J13].freeze
 
         TOKEN_BLOCKED_HEXES = %w[J11 J13 G10].freeze
@@ -194,24 +206,8 @@ module Engine
           false
         end
 
-        def nassau
-          @nassau ||= company_by_id('NC')
-        end
-
-        def darmstadt
-          @darmstadt ||= company_by_id('HDC')
-        end
-
-        def kassel
-          @kassel ||= company_by_id('HKC')
-        end
-
-        def waldeck
-          @waldeck ||= company_by_id('WC')
-        end
-
-        def frankfurt
-          @frankfurt ||= company_by_id('FC')
+        def concession_companies
+          @concession_companies ||= self.class::CONCESSIONS.to_h { |id| [id, company_by_id(id)] }
         end
 
         def seidler_variant?
@@ -242,69 +238,12 @@ module Engine
           @granted_rights[corporation.id].include?(concession_id)
         end
 
-        def nassau?(corporation)
-          granted_right?(corporation, 'NC')
-        end
-
-        def darmstadt?(corporation)
-          granted_right?(corporation, 'HDC')
-        end
-
-        def kassel?(corporation)
-          granted_right?(corporation, 'HKC')
-        end
-
-        def waldeck?(corporation)
-          granted_right?(corporation, 'WC')
-        end
-
-        def frankfurt?(corporation)
-          granted_right?(corporation, 'FC')
-        end
-
-        def buy_nassau_right(entity)
-          seller = nassau.owner
-          seller_name = nassau.owner.name
-          @log << "#{entity.name} buys a Nassau Right from #{seller_name} for #{format_currency(RIGHT_COST)}"
+        def buy_right(entity, concession_id)
+          concession = concession_companies[concession_id]
+          seller = concession.owner
           entity.spend(RIGHT_COST, seller)
-
-          grant_right(entity, nassau)
-        end
-
-        def buy_darmstadt_right(entity)
-          seller = darmstadt.owner
-          seller_name = darmstadt.owner.name
-          @log << "#{entity.name} buys a Darmstadt Right from #{seller_name} for #{format_currency(RIGHT_COST)}"
-          entity.spend(RIGHT_COST, seller)
-
-          grant_right(entity, darmstadt)
-        end
-
-        def buy_kassel_right(entity)
-          seller = kassel.owner
-          seller_name = kassel.owner.name
-          @log << "#{entity.name} buys a Kassel Right from #{seller_name} for #{format_currency(RIGHT_COST)}"
-          entity.spend(RIGHT_COST, seller)
-
-          grant_right(entity, kassel)
-        end
-
-        def buy_waldeck_right(entity)
-          seller = waldeck.owner
-          seller_name = waldeck.owner.name
-          @log << "#{entity.name} buys a Waldeck Right from #{seller_name} for #{format_currency(RIGHT_COST)}"
-          entity.spend(RIGHT_COST, seller)
-
-          grant_right(entity, waldeck)
-        end
-
-        def buy_frankfurt_right(entity)
-          seller = frankfurt.owner
-          seller_name = frankfurt.owner.name
-          @log << "#{entity.name} buys a Frankfurt Right from #{seller_name} for #{format_currency(RIGHT_COST)}"
-          entity.spend(RIGHT_COST, seller)
-
-          grant_right(entity, frankfurt)
+          grant_right(entity, concession)
+          @log << "#{entity.name} buys the #{concession.name} from #{seller.name} for #{format_currency(RIGHT_COST)}"
         end
 
         def grant_right(corporation, concession_company)
@@ -314,7 +253,6 @@ module Engine
             description: "#{concession_company.name} Rights",
           )
           corporation.add_ability(ability)
-          @log << "#{corporation.name} claims the #{concession_company.name}"
         end
 
         def can_buy_right?(entity, concession_id)
@@ -328,26 +266,6 @@ module Engine
           return false if region && operating_rights(entity).include?(region)
 
           buying_power(entity) >= RIGHT_COST
-        end
-
-        def can_buy_nassau_right?(entity)
-          can_buy_right?(entity, 'NC')
-        end
-
-        def can_buy_darmstadt_right?(entity)
-          can_buy_right?(entity, 'HDC')
-        end
-
-        def can_buy_kassel_right?(entity)
-          can_buy_right?(entity, 'HKC')
-        end
-
-        def can_buy_waldeck_right?(entity)
-          can_buy_right?(entity, 'WC')
-        end
-
-        def can_buy_frankfurt_right?(entity)
-          can_buy_right?(entity, 'FC')
         end
 
         def init_starting_cash(players, bank)
@@ -479,41 +397,25 @@ module Engine
           stops.sum { |stop| stop.route_revenue(route.phase, route.train) } + connection_bonus(route, stops)
         end
 
-        def connection_bonus(route, _stops)
-          visited_location_names = route.visited_stops.map { |stop| stop.tile.location_name }.compact
-          return 0 if visited_location_names.count < 2
+        def revenue_str(route)
+          str = super
+          bonus = connection_bonus(route, route.stops)
+          str += " + Transit(#{bonus})" if bonus.positive?
+          str
+        end
 
-          LOGGER.debug { "connection_bonus >> visited_location_names: #{visited_location_names}" }
-          revenue = 0
-          revenue += 40 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Südwestfalen')
-          revenue += 70 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Ostwestfalen')
-          revenue += 80 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Hannover')
-          revenue += 70 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Thüringen')
-          revenue += 60 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Franken')
-          revenue += 40 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Baden')
-          revenue += 30 if visited_location_names.include?('Rheinland') && visited_location_names.include?('Pfalz')
-          revenue += 30 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Ostwestfalen')
-          revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Hannover')
-          revenue += 50 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Thüringen')
-          revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Franken')
-          revenue += 50 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Baden')
-          revenue += 40 if visited_location_names.include?('Südwestfalen') && visited_location_names.include?('Pfalz')
-          revenue += 30 if visited_location_names.include?('Ostwestfalen') && visited_location_names.include?('Hannover')
-          revenue += 40 if visited_location_names.include?('Ostwestfalen') && visited_location_names.include?('Thüringen')
-          revenue += 70 if visited_location_names.include?('Ostwestfalen') && visited_location_names.include?('Franken')
-          revenue += 80 if visited_location_names.include?('Ostwestfalen') && visited_location_names.include?('Baden')
-          revenue += 80 if visited_location_names.include?('Ostwestfalen') && visited_location_names.include?('Pfalz')
-          revenue += 30 if visited_location_names.include?('Hannover') && visited_location_names.include?('Thüringen')
-          revenue += 60 if visited_location_names.include?('Hannover') && visited_location_names.include?('Franken')
-          revenue += 80 if visited_location_names.include?('Hannover') && visited_location_names.include?('Baden')
-          revenue += 80 if visited_location_names.include?('Hannover') && visited_location_names.include?('Pfalz')
-          revenue += 50 if visited_location_names.include?('Thüringen') && visited_location_names.include?('Franken')
-          revenue += 50 if visited_location_names.include?('Thüringen') && visited_location_names.include?('Baden')
-          revenue += 60 if visited_location_names.include?('Thüringen') && visited_location_names.include?('Pfalz')
-          revenue += 30 if visited_location_names.include?('Franken') && visited_location_names.include?('Baden')
-          revenue += 40 if visited_location_names.include?('Franken') && visited_location_names.include?('Pfalz')
-          revenue += 20 if visited_location_names.include?('Baden') && visited_location_names.include?('Pfalz')
-          revenue
+        def connection_bonus(route, _stops)
+          regions = route.visited_stops.filter_map { |stop| stop.tile.location_name }
+            .uniq.select { |name| self.class::TRANSIT_REGIONS.key?(name) }
+          return 0 if regions.size < 2
+
+          regions.combination(2).sum { |a, b| transit_bonus(a, b) }
+        end
+
+        def transit_bonus(region_a, region_b)
+          a = self.class::TRANSIT_REGIONS[region_a]
+          b = self.class::TRANSIT_REGIONS[region_b]
+          a[b[:dir]] + b[a[:dir]]
         end
       end
     end

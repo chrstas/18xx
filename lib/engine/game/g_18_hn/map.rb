@@ -175,7 +175,6 @@ module Engine
           'D21' => 'Eschwege',
           'E14' => 'Frankenberg',
           'E18' => 'Bad Hersfeld',
-          'E17' => 'Cleveland',
           'F9' => 'Dillenburg',
           'F11' => 'Biedenkopf',
           'F13' => 'Marburg',
@@ -192,7 +191,7 @@ module Engine
           'H13' => 'Bad Nauheim',
           'I8' => 'Idstein',
           'I10' => 'Bad Homburg',
-          'I12' => 'Friedber',
+          'I12' => 'Friedberg',
           'I16' => 'Gellnhausen',
           'J5' => 'Rüdesheim',
           'J9' => 'Wiesbaden',
@@ -337,7 +336,7 @@ module Engine
             ['I10'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;label=Hom',
           },
           brown: {
-            ['G10'] => 'city=revenue:yellow_20|green_30|brown_40;path=a:2,b:_0;path=a:4,b:_0;path=a:6,b:_0',
+            ['G10'] => 'city=revenue:yellow_20|green_30|brown_40;path=a:2,b:_0;path=a:4,b:_0;path=a:0,b:_0',
           },
         }.freeze
         LAYOUT = :pointy

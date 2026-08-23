@@ -206,7 +206,7 @@ module Engine
             sym: 'WC',
             value: 0,
             revenue: 0,
-            desc: 'Concession rights for operations in Waldeck. Sell rights for 40$ to Owner',
+            desc: 'Concession rights for operations in Waldeck. Sell rights for 40M to Owner',
             abilities: [{ type: 'no_buy' }],
             color: nil,
             meta: { start_packet: false },
@@ -216,7 +216,7 @@ module Engine
             sym: 'HKC',
             value: 0,
             revenue: 0,
-            desc: 'Concession rights for operations in Hessen-Kassel. Sell rights for 40$ to Owner',
+            desc: 'Concession rights for operations in Hessen-Kassel. Sell rights for 40M to Owner',
             color: nil,
             abilities: [{ type: 'no_buy' }],
             meta: { start_packet: false },
@@ -226,7 +226,7 @@ module Engine
             sym: 'NC',
             value: 0,
             revenue: 0,
-            desc: 'Concession rights for operations in Nassau. Sell rights for 40$ to Owner',
+            desc: 'Concession rights for operations in Nassau. Sell rights for 40M to Owner',
             color: nil,
             abilities: [{ type: 'no_buy' }],
             meta: { start_packet: false },
@@ -236,7 +236,7 @@ module Engine
             sym: 'HDC',
             value: 0,
             revenue: 0,
-            desc: 'Concession rights for operations in Hessen-Darmstadt. Sell rights for 40$ to Owner',
+            desc: 'Concession rights for operations in Hessen-Darmstadt. Sell rights for 40M to Owner',
             color: nil,
             abilities: [{ type: 'no_buy' }],
             meta: { start_packet: false },
@@ -246,10 +246,10 @@ module Engine
             sym: 'FC',
             value: 0,
             revenue: 0,
-            desc: 'Concession rights for city passage of Frankfurt. Sell rights for 40$ to Owner',
+            desc: 'Concession rights for city passage of Frankfurt. Sell rights for 40M to Owner',
             color: nil,
             abilities: [{ type: 'no_buy' }],
-
+            meta: { start_packet: false },
           },
         ].freeze
 
@@ -350,7 +350,6 @@ module Engine
             color: :'#ADD8E6',
             text_color: :green,
             destination_coordinates: %w[J9 J5 J3 G2],
-            commodities: 'NAS',
             abilities: [
               {
                 type: 'exchange',

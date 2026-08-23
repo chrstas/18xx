@@ -7,8 +7,6 @@ module Engine
     module G18HN
       module Step
         class SpecialBuy < Engine::Step::SpecialBuy
-          attr_reader :nassau_item, :darmstadt_item, :kassel_item, :waldeck_item, :frankfurt_item
-
           def actions(entity)
             return [] unless entity == current_entity
 
@@ -16,14 +14,7 @@ module Engine
           end
 
           def buyable_items(entity)
-            items = []
-            items << @nassau_item if @game.can_buy_nassau_right?(entity)
-            items << @darmstadt_item if @game.can_buy_darmstadt_right?(entity)
-            items << @kassel_item if @game.can_buy_kassel_right?(entity)
-            items << @waldeck_item if @game.can_buy_waldeck_right?(entity)
-            items << @frankfurt_item if @game.can_buy_frankfurt_right?(entity)
-
-            items
+            concession_items.select { |id, _item| @game.can_buy_right?(entity, id) }.values
           end
 
           def short_description
@@ -31,24 +22,22 @@ module Engine
           end
 
           def process_special_buy(action)
-            item = action.item
-            return @game.buy_nassau_right(action.entity) if item == @nassau_item
-            return @game.buy_darmstadt_right(action.entity) if item == @darmstadt_item
-            return @game.buy_kassel_right(action.entity) if item == @kassel_item
-            return @game.buy_waldeck_right(action.entity) if item == @waldeck_item
-            return @game.buy_frankfurt_right(action.entity) if item == @frankfurt_item
+            id, = concession_items.find { |_id, item| item == action.item }
+            raise GameError, "Cannot buy unknown item: #{action.item.description}" unless id
 
-            raise GameError, "Cannot buy unknown item: #{item.description}"
+            @game.buy_right(action.entity, id)
           end
 
           def setup
             super
-            @nassau_item ||= Item.new(description: 'Nassau Concession', cost: 40)
-            @darmstadt_item ||= Item.new(description: 'Darmstadt Concession', cost: 40)
-            @waldeck_item ||= Item.new(description: 'Waldeck Concession', cost: 40)
-            @kassel_item ||= Item.new(description: 'Kassel Concession', cost: 40)
-            @frankfurt_item ||= Item.new(description: 'Frankfurt right', cost: 40)
+            @concession_items ||= @game.concession_companies.transform_values do |company|
+              Item.new(description: company.name, cost: @game.class::RIGHT_COST)
+            end
           end
+
+          private
+
+          attr_reader :concession_items
         end
       end
     end
