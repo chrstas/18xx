@@ -14,17 +14,6 @@ module Engine
 
             super
           end
-
-          def process_place_token(action)
-            entity = action.entity
-            hex = action.city.hex
-            unless @game.hex_operating_rights?(entity, hex)
-              raise GameError, 'Cannot place token without operating rights in the selected region'
-            end
-            raise GameError, "Cannot place a token in #{hex.tile.location_name}" if @game.token_blocked_hex?(hex)
-
-            super
-          end
         end
       end
     end

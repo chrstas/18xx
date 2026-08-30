@@ -24,6 +24,9 @@ module Engine
           def process_special_buy(action)
             id, = concession_items.find { |_id, item| item == action.item }
             raise GameError, "Cannot buy unknown item: #{action.item.description}" unless id
+            if !@game.loading && !@game.can_buy_right?(action.entity, id)
+              raise GameError, "#{action.entity.name} cannot buy #{action.item.description}"
+            end
 
             @game.buy_right(action.entity, id)
           end

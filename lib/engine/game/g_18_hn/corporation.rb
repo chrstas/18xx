@@ -12,7 +12,6 @@ module Engine
           opts[:shares] = ipo_shares + reserved_shares if !ipo_shares.empty? || !reserved_shares.empty?
           super(sym: sym, name: name, **opts)
 
-          @percent_total_ipo_shares = 100 - reserved_shares.sum
           reserved_shares.each do |share_percent|
             share = shares.reverse.find { |s| s.percent == share_percent && s.buyable }
             share.buyable = false
@@ -25,10 +24,6 @@ module Engine
           @floated ||= (percent_to_float <= 0)
         end
 
-        def float!
-          @floated = true
-        end
-
         # a reserved share exchanged for a private counts towards the float
         def percent_to_float
           return 0 if @floated
@@ -38,14 +33,6 @@ module Engine
 
         def percent_ipo
           @ipo_owner.shares_by_corporation[self].sum(&:percent)
-        end
-
-        def percent_ipo_buyable
-          @ipo_owner.shares_by_corporation[self].select(&:buyable).sum(&:percent)
-        end
-
-        def total_ipo_shares
-          @percent_total_ipo_shares / share_percent
         end
       end
     end

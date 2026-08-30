@@ -85,6 +85,7 @@ module Engine
                 reachable: false,
                 when: 'any',
                 count: 4,
+                connect: false,
               },
               { type: 'acquire_company', company: 'FC' },
 ],

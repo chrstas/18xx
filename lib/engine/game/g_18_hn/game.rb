@@ -322,7 +322,7 @@ module Engine
             Engine::Step::Bankrupt,
             Engine::Step::Exchange,
             G18HN::Step::SpecialBuy,
-            Engine::Step::SpecialTrack,
+            G18HN::Step::SpecialTrack,
             Engine::Step::HomeToken,
             G18HN::Step::Track,
             G18HN::Step::Token,
@@ -357,12 +357,9 @@ module Engine
           self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
         end
 
-        # the bank does not pay for the share reserved for a private
-        def float_corporation(corporation)
-          @log << "#{corporation.name} floats"
-          @bank.spend(corporation.par_price.price * corporation.total_ipo_shares, corporation)
-          @log << "#{corporation.name} receives #{format_currency(corporation.cash)}"
-        end
+        # TODO: 18HN pays capitalization in two stages, half on float and half when the
+        # track obligation is met (rules 7.3 and 8.4.3); the engine default pays it all
+        # on float. Correct for companies founded after brown starts, too early for the rest.
 
         # reserved shares of unexchanged privates are ignored
         def sold_out?(corporation)
