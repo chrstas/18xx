@@ -75,7 +75,7 @@ module Engine
                       N11 N13 O12],
           'NAS' => %w[F5 F7 F9 G4 G6 G8 H3 H5 H7 H9 I4 I6 I8 J5 J7 J9],
           'ALL' => %w[B11 B19 E10 E22 F23 G22 G2 G10 H1 I2 I10 J3 J11 J13 K16 N5 O6 O8 O10],
-        }.freeze
+        }.deep_freeze
 
         MARKET = [
           ['', '', '85', '90', '100p', '110', '120', '130', '140', '160', '180', '200', '225', '250', '275', '300', '325', '350',
@@ -233,7 +233,7 @@ module Engine
           end
         end
 
-        # tracked explicitly: corporations start with same-named exchange abilities
+        # grant_right's ability is display only; @granted_rights is authoritative
         def granted_right?(corporation, concession_id)
           @granted_rights[corporation.id].include?(concession_id)
         end
@@ -334,7 +334,7 @@ module Engine
         end
 
         def national_hexes(corporation_id)
-          self.class::NATIONAL_REGION_HEXES[corporation_id].dup
+          self.class::NATIONAL_REGION_HEXES[corporation_id]
         end
 
         def operating_rights(entity)
@@ -350,6 +350,13 @@ module Engine
 
         def token_blocked_hex?(hex)
           self.class::TOKEN_BLOCKED_HEXES.include?(hex.name)
+        end
+
+        # the F/W and F/E labels also bind private companies, which lay with special = true
+        def upgrades_to?(from, to, special = false, selected_company: nil)
+          return false if self.class::FRANKFURT_HEXES.include?(from.hex&.name) && !upgrades_to_correct_label?(from, to)
+
+          super
         end
 
         # in yellow and green phases only the FL private may build Frankfurt
