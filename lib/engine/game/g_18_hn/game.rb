@@ -338,7 +338,10 @@ module Engine
           (rights + ['ALL']).uniq
         end
 
+        # 8.4.1: from the brown phase on the borders are gone and concessions are meaningless
         def hex_operating_rights?(entity, hex)
+          return true if @phase.tiles.include?(:brown)
+
           nationals = operating_rights(entity)
           nationals.any? { |national| national_hexes(national).include?(hex.name) }
         end
