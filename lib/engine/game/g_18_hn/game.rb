@@ -246,6 +246,7 @@ module Engine
             description: "#{concession_company.name} Rights",
           )
           corporation.add_ability(ability)
+          clear_graph_for_entity(corporation)
         end
 
         def can_buy_right?(entity, concession_id)
@@ -256,7 +257,9 @@ module Engine
           return false if concession.nil? || concession.closed? || concession.owner.nil?
 
           region = self.class::CONCESSION_REGIONS[concession_id]
-          return false if region && operating_rights(entity).include?(region)
+          # TODO: the Frankfurt right has no effect until the local line between both stations is implemented (8.4.5)
+          return false unless region
+          return false if operating_rights(entity).include?(region)
 
           buying_power(entity) >= RIGHT_COST
         end
@@ -328,6 +331,10 @@ module Engine
           ], round_num: round_num)
         end
 
+        def after_phase_change(_name)
+          clear_graph
+        end
+
         def national_hexes(corporation_id)
           self.class::NATIONAL_REGION_HEXES[corporation_id]
         end
@@ -344,6 +351,19 @@ module Engine
 
           nationals = operating_rights(entity)
           nationals.any? { |national| national_hexes(national).include?(hex.name) }
+        end
+
+        # 8.4.1: track in a country without a concession must not be used to reach hexes elsewhere
+        def graph_skip_paths(entity)
+          return nil unless entity&.corporation?
+
+          skip_paths = {}
+          @hexes.each do |hex|
+            next if hex_operating_rights?(entity, hex)
+
+            hex.tile.paths.each { |path| skip_paths[path] = true }
+          end
+          skip_paths.empty? ? nil : skip_paths
         end
 
         def token_blocked_hex?(hex)
