@@ -19,6 +19,8 @@ module Engine
         CURRENCY_FORMAT_STR = '%sM'
 
         STARTING_CASH = { 3 => 800, 4 => 600, 5 => 500 }.freeze
+        # 9. Varianten: the optional eighth private adds 10M to every player
+        SEIDLER_EXTRA_CASH = 10
 
         SELL_AFTER = :after_sr_floated
 
@@ -224,15 +226,6 @@ module Engine
           companies
         end
 
-        def cash_by_options
-          case seidler_variant?
-          when true
-            { 3 => 810, 4 => 610, 5 => 510 }
-          else
-            { 3 => 800, 4 => 600, 5 => 500 }
-          end
-        end
-
         # grant_right's ability is display only; @granted_rights is authoritative
         def granted_right?(corporation, concession_id)
           @granted_rights[corporation.id].include?(concession_id)
@@ -269,7 +262,9 @@ module Engine
         end
 
         def init_starting_cash(players, bank)
-          cash = cash_by_options[players.size]
+          return super unless seidler_variant?
+
+          cash = self.class::STARTING_CASH[players.size] + self.class::SEIDLER_EXTRA_CASH
           players.each do |player|
             bank.spend(cash, player)
           end
@@ -354,7 +349,11 @@ module Engine
 
         # the F/W and F/E labels also bind private companies, which lay with special = true
         def upgrades_to?(from, to, special = false, selected_company: nil)
-          return false if self.class::FRANKFURT_HEXES.include?(from.hex&.name) && !upgrades_to_correct_label?(from, to)
+          frankfurt = self.class::FRANKFURT_HEXES.include?(from.hex&.name)
+          return false if frankfurt && !upgrades_to_correct_label?(from, to)
+          # special skips the base town and city count; only the Frankfurt tiles may change it
+          return false if special && !frankfurt &&
+                          (from.towns.size != to.towns.size || from.cities.size != to.cities.size)
 
           super
         end
@@ -377,24 +376,13 @@ module Engine
           super - entity.companies.count { |company| self.class::CONCESSIONS.include?(company.id) }
         end
 
-        def check_distance(route, visits)
+        # 8.4.1: operating rights cover every hex a route runs through, stop or not
+        def check_other(route)
           entity = route.corporation
+          missing = route.all_hexes.reject { |hex| hex_operating_rights?(entity, hex) }
+          return if missing.empty?
 
-          unless visits_operating_rights?(entity, visits)
-            raise GameError, 'The director need operating rights to operate in the selected regions'
-          end
-
-          super
-        end
-
-        def visits_operating_rights?(entity, visits)
-          nationals = operating_rights(entity)
-
-          count = visits.count do |v|
-            nationals.any? { |national| national_hexes(national).include?(v.hex.name) }
-          end
-
-          count == visits.size
+          raise GameError, "#{entity.name} needs operating rights for #{missing.map(&:name).sort.join(', ')}"
         end
 
         def revenue_for(route, stops)
