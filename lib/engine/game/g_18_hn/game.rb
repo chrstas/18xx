@@ -22,7 +22,7 @@ module Engine
         # 9. Varianten: the optional eighth private adds 10M to every player
         SEIDLER_EXTRA_CASH = 10
 
-        SELL_AFTER = :after_sr_floated
+        SELL_AFTER = :first
 
         SELL_MOVEMENT = :down_block
 
@@ -412,6 +412,20 @@ module Engine
         # reserved shares of unexchanged privates are ignored
         def sold_out?(corporation)
           corporation.player_share_holders.values.sum == 100 - corporation.reserved_shares.sum(&:percent)
+        end
+
+        # 7.2: only shares of corporations that are in operation may be sold
+        def check_sale_timing(_entity, bundle)
+          bundle.corporation.floated? && super
+        end
+
+        # 7.2: a corporation that has never operated drops one step before the seller is paid
+        def sellable_bundles(player, corporation)
+          bundles = super
+          return bundles if bundles.empty? || corporation.operated?
+
+          bundles.each { |bundle| bundle.share_price = @stock_market.find_share_price(corporation, :down).price }
+          bundles
         end
 
         def num_certs(entity)
