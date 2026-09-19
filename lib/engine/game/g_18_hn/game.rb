@@ -257,9 +257,7 @@ module Engine
           return false if concession.nil? || concession.closed? || concession.owner.nil?
 
           region = self.class::CONCESSION_REGIONS[concession_id]
-          # TODO: the Frankfurt right has no effect until the local line between both stations is implemented (8.4.5)
-          return false unless region
-          return false if operating_rights(entity).include?(region)
+          return false if region && operating_rights(entity).include?(region)
 
           buying_power(entity) >= RIGHT_COST
         end
@@ -346,8 +344,19 @@ module Engine
         end
 
         # 8.4.1: from the brown phase on the borders are gone and concessions are meaningless
+        def borders_gone?
+          @phase.tiles.include?(:brown)
+        end
+
+        # 8.4.1: hexes the entity may operate in, nil once the borders are gone
+        def operating_hexes(entity)
+          return nil if borders_gone?
+
+          operating_rights(entity).flat_map { |national| national_hexes(national) }.to_set
+        end
+
         def hex_operating_rights?(entity, hex)
-          return true if @phase.tiles.include?(:brown)
+          return true if borders_gone?
 
           nationals = operating_rights(entity)
           nationals.any? { |national| national_hexes(national).include?(hex.name) }
@@ -357,13 +366,23 @@ module Engine
         def graph_skip_paths(entity)
           return nil unless entity&.corporation?
 
+          # 8.4.5: the local line is barred without the Frankfurt right, brown shortcut or not
+          frankfurt = granted_right?(entity, 'FC')
+          hexes = operating_hexes(entity)
           skip_paths = {}
           @hexes.each do |hex|
-            next if hex_operating_rights?(entity, hex)
-
-            hex.tile.paths.each { |path| skip_paths[path] = true }
+            rights = hexes.nil? || hexes.include?(hex.name)
+            hex.tile.paths.each do |path|
+              skip_paths[path] = true if !rights || (!frankfurt && path.track == :narrow)
+            end
           end
           skip_paths.empty? ? nil : skip_paths
+        end
+
+        # the base class places the home token without clearing the graph cache
+        def place_home_token(corporation)
+          super
+          clear_graph_for_entity(corporation)
         end
 
         def token_blocked_hex?(hex)
@@ -402,6 +421,11 @@ module Engine
         # 8.4.1: operating rights cover every hex a route runs through, stop or not
         def check_other(route)
           entity = route.corporation
+          # 8.4.5: the local line between both Frankfurt stations needs the Frankfurt transit right
+          if !granted_right?(entity, 'FC') && route.paths.any? { |path| path.track == :narrow }
+            raise GameError, "#{entity.name} needs the Frankfurt transit right to use the local line"
+          end
+
           missing = route.all_hexes.reject { |hex| hex_operating_rights?(entity, hex) }
           return if missing.empty?
 
