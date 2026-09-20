@@ -313,10 +313,19 @@ module Engine
             end
         end
 
+        def stock_round
+          Round::Stock.new(self, [
+            Engine::Step::DiscardTrain,
+            G18HN::Step::Exchange,
+            Engine::Step::SpecialTrack,
+            Engine::Step::BuySellParShares,
+          ])
+        end
+
         def operating_round(round_num)
           Round::Operating.new(self, [
             Engine::Step::Bankrupt,
-            Engine::Step::Exchange,
+            G18HN::Step::Exchange,
             G18HN::Step::SpecialBuy,
             G18HN::Step::SpecialTrack,
             Engine::Step::HomeToken,
@@ -325,7 +334,7 @@ module Engine
             G18HN::Step::Route,
             Engine::Step::Dividend,
             Engine::Step::DiscardTrain,
-            Engine::Step::BuyTrain,
+            G18HN::Step::BuyTrain,
           ], round_num: round_num)
         end
 
@@ -419,13 +428,33 @@ module Engine
           bundle.corporation.floated? && super
         end
 
+        # 7.2: shares of an unfloated corporation are worth nothing, one that never operated counts one step below
+        def liquidity(player, emergency: false)
+          return super if emergency
+          return player.cash unless sellable_turn?
+
+          player.shares_by_corporation.sum(player.cash) do |corporation, shares|
+            next 0 if shares.empty? || !corporation.floated?
+
+            bundles = bundles_for_corporation(player, corporation)
+            unless corporation.operated?
+              price = @stock_market.find_share_price(corporation, :down).price
+              bundles.each { |bundle| bundle.share_price = price }
+            end
+            bundles.select { |b| can_dump?(player, b) && @share_pool&.fit_in_bank?(b) }.max_by(&:price)&.price || 0
+          end
+        end
+
         # 7.2: a corporation that has never operated drops one step before the seller is paid
         def sellable_bundles(player, corporation)
-          bundles = super
-          return bundles if bundles.empty? || corporation.operated?
+          return super if corporation.operated? || !corporation.ipoed
+          return [] unless @round.active_step.respond_to?(:can_sell?)
 
-          bundles.each { |bundle| bundle.share_price = @stock_market.find_share_price(corporation, :down).price }
-          bundles
+          # price first, then filter: the emergency step decides against the price
+          bundles = bundles_for_corporation(player, corporation)
+          price = @stock_market.find_share_price(corporation, :down).price
+          bundles.each { |bundle| bundle.share_price = price }
+          bundles.select { |bundle| @round.active_step.can_sell?(player, bundle) }
         end
 
         def num_certs(entity)
