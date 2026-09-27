@@ -5,8 +5,8 @@ module Engine
     module G18HN
       module G18HNSpecHelpers
         # Builds a fresh game; no fixture, no actions replayed.
-        def build_game(players: 3, optional_rules: [])
-          Engine::Game::G18HN::Game.new(%w[a b c d e].first(players), optional_rules: optional_rules)
+        def build_game(players: 3, optional_rules: [], id: 0)
+          Engine::Game::G18HN::Game.new(%w[a b c d e].first(players), id: id, optional_rules: optional_rules)
         end
 
         # Advances the phase by calling Phase#next! until the target name is reached.
