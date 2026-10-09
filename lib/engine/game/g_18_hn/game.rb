@@ -372,6 +372,23 @@ module Engine
           share.buyable = true
         end
 
+        # 5.3 / 8.5: BE, TB and OB are exchanged at the end of the OR in which others built all their hexes
+        def or_round_finished
+          exchange_order.each do |company|
+            next unless special_hexes_built?(company)
+
+            @log << "#{company.name} must be exchanged"
+            exchange_private!(company)
+            company.close!
+          end
+        end
+
+        def special_hexes_built?(company)
+          return false unless (ability = abilities(company, :tile_lay, time: 'exchange'))
+
+          Array(ability.hexes).all? { |id| hex_by_id(id).tile.color != :white }
+        end
+
         def after_phase_change(_name)
           clear_graph
         end

@@ -69,8 +69,14 @@ module Engine
           play_operating_round(plan, true)
         end
 
-        def play_operating_round(plan, stop_at_buy_train)
+        # lays: { corporation => [[hex, tile, rotation], ...] }, one entry per operating turn
+        def operate_with_tiles(lays, plan = {})
+          play_operating_round(plan, false, lays)
+        end
+
+        def play_operating_round(plan, stop_at_buy_train, lays = {})
           plan = plan.transform_values(&:dup)
+          lays = lays.transform_values(&:dup)
           round = game.round
           while game.round.equal?(round)
             step = game.round.active_step
@@ -78,7 +84,11 @@ module Engine
 
             entity = game.current_entity
             actions = step.actions(entity)
-            act(if actions.include?('run_routes')
+            act(if actions.include?('lay_tile') && (lay = lays[entity.id]&.shift)
+                  hex, tile, rotation = lay
+                  Action::LayTile.new(entity, tile: game.tiles.find { |t| t.name == tile }, hex: game.hex_by_id(hex),
+                                              rotation: rotation)
+                elsif actions.include?('run_routes')
                   Action::RunRoutes.new(entity, routes: [])
                 elsif actions.include?('dividend')
                   Action::Dividend.new(entity, kind: 'withhold')
@@ -423,6 +433,54 @@ module Engine
 
             expect(fb).to be_closed
             expect(game.current_entity).to eq(game.company_by_id('TB'))
+          end
+        end
+
+        context 'forced exchange at the end of an operating round' do
+          # WLB builds Korbach and Bad Wildungen, SB builds Darmstadt and one of the three Odenwald hexes
+          before do
+            turn_of(b)
+            par(b, 'SB', 70)
+            turn_of(c)
+            par(c, 'HLB', 70)
+            turn_of(a)
+            par(a, 'WLB', 70)
+            3.times do
+              turn_of(b)
+              buy(b, 'SB')
+              turn_of(c)
+              buy(c, 'HLB')
+              turn_of(a)
+              buy(a, 'WLB')
+            end
+            expect([a, b, c].map(&:cash)).to eq([320, 280, 340])
+            finish_round
+
+            operate_with_tiles({ 'WLB' => [['C14', '5', 4]], 'SB' => [['L11', '927', 1]] },
+                               { 'SB' => [[:depot]], 'HLB' => [[:depot]], 'WLB' => [[:depot]] })
+            finish_round
+            @wlb_cash = game.corporation_by_id('WLB').cash
+            operate_with_tiles({ 'WLB' => [['D15', '3', 2]], 'SB' => [['M12', '7', 1]] })
+          end
+
+          it 'exchanges BE once others built D15' do
+            share = game.share_by_id('WLB_8')
+
+            expect(game.phase.name).to eq('2')
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.turn).to eq(3)
+            expect(game.hex_by_id('D15').tile.name).to eq('3')
+            expect(@wlb_cash - game.corporation_by_id('WLB').cash).to eq(60)
+            expect(game.company_by_id('BE')).to be_closed
+            expect(share.owner).to eq(b)
+            expect(share.buyable).to be(true)
+            expect(game.log.map(&:message)).to include('Baugesellschaft Edertalsperre must be exchanged')
+          end
+
+          it 'keeps OB while one of its hexes is still unbuilt' do
+            expect(game.hex_by_id('M12').tile.name).to eq('7')
+            expect(game.company_by_id('OB')).not_to be_closed
+            expect(game.corporation_by_id('SB').reserved_shares.map(&:id)).to eq(['SB_8'])
           end
         end
 
