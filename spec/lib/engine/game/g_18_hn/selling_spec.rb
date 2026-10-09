@@ -492,6 +492,41 @@ module Engine
           end
         end
 
+        context 'Hanau station of FHB' do
+          let(:fhb) { game.corporation_by_id('FHB') }
+          let(:hanau) { game.hex_by_id('J15').tile.cities.first }
+
+          it 'keeps the Hanau slot and the second free station for the FB exchange' do
+            expect(hanau.reserved_by?(fhb)).to be(true)
+            expect(hanau.tokenable?(game.corporation_by_id('SB'), free: true)).to be(false)
+
+            stock_round_one
+            finish_round
+            token_step = game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
+            expect(token_step.available_tokens(fhb).map(&:type)).to all(eq(:normal))
+          end
+
+          it 'places the station when FB is exchanged, before FHB is founded' do
+            play_into_green
+            play_exchange_round('FB' => 'Exchange')
+
+            expect(hanau.tokens.compact.map(&:corporation)).to eq([fhb])
+            expect(hanau.reserved_by?(fhb)).to be(false)
+            expect(fhb.ipoed).to be_falsey
+
+            turn_of(c)
+            par(c, 'FHB', 70)
+            2.times do
+              turn_of(c)
+              buy(c, 'FHB')
+            end
+            finish_round
+            play_exchange_round
+            operate('FHB' => [[:depot]])
+            expect(game.hex_by_id('G20').tile.cities.flat_map(&:tokens).compact.map(&:corporation)).to include(fhb)
+          end
+        end
+
         context 'forced exchange when brown starts' do
           def play_until_operating
             until game.round.is_a?(Engine::Round::Operating)
@@ -561,6 +596,8 @@ module Engine
             expect(shares.map { |share| share.owner.id }).to eq(%w[b c a b])
             expect(shares.map(&:buyable)).to all(be(true))
             expect(game.company_by_id('FB')).to be_closed
+            expect(game.hex_by_id('J15').tile.cities.first.tokens.compact.map(&:corporation))
+              .to include(game.corporation_by_id('FHB'))
           end
 
           it 'makes BE, TB and OB lay their special tile in turn before they close' do

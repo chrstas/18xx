@@ -53,6 +53,7 @@ module Engine
         CONCESSION_REGIONS = { 'WC' => 'WAL', 'HKC' => 'KAS', 'NC' => 'NAS', 'HDC' => 'DAR' }.freeze
 
         CONCESSIONS = %w[WC HKC NC HDC FC].freeze
+        HANAU_HEX = 'J15'
 
         # transit bonus: each region pays its own row's value for the other region's direction
         TRANSIT_REGIONS = {
@@ -279,6 +280,10 @@ module Engine
         def setup
           super
           @granted_rights = Hash.new { |h, k| h[k] = Set.new }
+          # 5.3 / 8.4.4: FHB's second free station waits for Hanau, whose slot stays reserved until then
+          fhb = corporation_by_id('FHB')
+          fhb.tokens << Engine::Token.new(fhb, type: :hanau)
+          hex_by_id(self.class::HANAU_HEX).tile.add_reservation!(fhb, 0)
         end
 
         def new_auction_round
@@ -371,6 +376,16 @@ module Engine
           @share_pool.buy_shares(company.owner, share.to_bundle, exchange: company)
           # 7.1: an exchanged reserved share is ordinary stock and must be buyable from the pool
           share.buyable = true
+          # 5.3: FB gives FHB its second home station in Hanau
+          place_hanau_token! if abilities(company, :token, time: 'exchange')
+        end
+
+        def place_hanau_token!
+          fhb = corporation_by_id('FHB')
+          hex = hex_by_id(self.class::HANAU_HEX)
+          hex.tile.cities.first.place_token(fhb, fhb.find_token_by_type(:hanau), free: true, check_tokenable: false)
+          clear_graph_for_entity(fhb)
+          @log << "#{fhb.name} places its second home station on #{hex.name}"
         end
 
         # 5.3 / 8.5: BE, TB and OB are exchanged at the end of the OR in which others built all their hexes

@@ -337,7 +337,7 @@ module Engine
             name: 'Fulda-Hanauer Bahn',
             logo: '18_hn/FHB',
             simple_logo: '18_hn/fhb.alt',
-            tokens: [0, 0, 40],
+            tokens: [0, 40],
             coordinates: 'G20',
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
             reserved_shares: [10],
