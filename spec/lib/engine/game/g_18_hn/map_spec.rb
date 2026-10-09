@@ -100,6 +100,17 @@ module Engine
             expect(game.upgrades_to?(tile['921'], tile['924'])).to be(false)
           end
 
+          it 'keeps the Frankfurt labels apart on the map hexes when a private lays' do
+            tile = ->(name) { game.tiles.find { |t| t.name == name } }
+            west = game.hex_by_id('J11').tile
+            east = game.hex_by_id('J13').tile
+
+            expect(game.upgrades_to?(west, tile['921'], true)).to be(true)
+            expect(game.upgrades_to?(west, tile['922'], true)).to be(false)
+            expect(game.upgrades_to?(east, tile['922'], true)).to be(true)
+            expect(game.upgrades_to?(east, tile['921'], true)).to be(false)
+          end
+
           it 'only lets the privates lay tiles that exist' do
             laid = game.companies.flat_map { |company| company.all_abilities.select { |a| a.type == :tile_lay } }
               .flat_map(&:tiles).uniq
@@ -168,6 +179,79 @@ module Engine
 
           it 'holds the measured number of tiles per colour' do
             expect(game.tiles.group_by(&:color).transform_values(&:size)).to eq(yellow: 68, green: 49, brown: 38)
+          end
+
+          it 'pins the current tile count of every id' do
+            # snapshot of our own TILES; the rules only give totals per colour and the special tiles
+            expected = {
+              '3' => 4,
+              '4' => 6,
+              '5' => 4,
+              '6' => 6,
+              '7' => 4,
+              '8' => 14,
+              '9' => 10,
+              '16' => 1,
+              '19' => 1,
+              '20' => 1,
+              '23' => 3,
+              '24' => 3,
+              '25' => 3,
+              '26' => 1,
+              '27' => 1,
+              '28' => 1,
+              '29' => 1,
+              '30' => 1,
+              '31' => 1,
+              '39' => 1,
+              '40' => 1,
+              '41' => 1,
+              '42' => 1,
+              '43' => 1,
+              '44' => 1,
+              '45' => 2,
+              '46' => 2,
+              '47' => 2,
+              '57' => 5,
+              '58' => 8,
+              '70' => 1,
+              '141' => 3,
+              '142' => 3,
+              '143' => 3,
+              '144' => 3,
+              '441' => 3,
+              '442' => 3,
+              '443' => 3,
+              '444' => 3,
+              '448' => 3,
+              '449' => 2,
+              '450' => 3,
+              '767' => 4,
+              '768' => 3,
+              '769' => 3,
+              '920' => 1,
+              '921' => 1,
+              '922' => 1,
+              '923' => 1,
+              '924' => 1,
+              '925' => 1,
+              '926' => 1,
+              '927' => 1,
+              '928' => 1,
+              '929' => 1,
+              '930' => 1,
+              '931' => 1,
+              '932' => 1,
+              '933' => 2,
+              '934' => 1,
+              '935' => 1,
+              '936' => 3,
+              '939' => 1,
+            }
+            expect(expected.size).to eq(63)
+            expect(expected.values.sum).to eq(155)
+
+            expect(game.tiles.group_by(&:name).transform_values(&:size)).to eq(expected)
           end
         end
       end
