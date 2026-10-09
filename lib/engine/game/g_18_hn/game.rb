@@ -336,7 +336,7 @@ module Engine
             G18HN::Step::Track,
             G18HN::Step::Token,
             G18HN::Step::Route,
-            Engine::Step::Dividend,
+            G18HN::Step::Dividend,
             Engine::Step::DiscardTrain,
             G18HN::Step::BuyTrain,
           ], round_num: round_num)
@@ -381,6 +381,18 @@ module Engine
             exchange_private!(company)
             company.close!
           end
+        end
+
+        # 5.3 / 8.1: at the start of brown the remaining exchange privates are exchanged, unpaid this OR
+        def event_close_companies!
+          exchange_order.each do |company|
+            owner = company.owner
+            corporation = exchange_share(company).corporation
+            @log << "#{company.name} must be exchanged"
+            exchange_private!(company)
+            @round.non_paying_shares[owner][corporation] += 1
+          end
+          super
         end
 
         def special_hexes_built?(company)

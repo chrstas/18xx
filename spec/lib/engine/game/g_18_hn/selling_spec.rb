@@ -94,6 +94,8 @@ module Engine
                   Action::Dividend.new(entity, kind: 'withhold')
                 elsif actions.include?('buy_train') && (order = plan[entity.id]&.shift)
                   train_action(entity, order)
+                elsif actions.include?('discard_train')
+                  Action::DiscardTrain.new(entity, train: entity.trains.min_by(&:price))
                 else
                   Action::Pass.new(entity)
                 end)
@@ -481,6 +483,100 @@ module Engine
             expect(game.hex_by_id('M12').tile.name).to eq('7')
             expect(game.company_by_id('OB')).not_to be_closed
             expect(game.corporation_by_id('SB').reserved_shares.map(&:id)).to eq(['SB_8'])
+          end
+        end
+
+        context 'forced exchange when brown starts' do
+          def play_until_operating
+            until game.round.is_a?(Engine::Round::Operating)
+              game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : finish_round
+            end
+          end
+
+          def play_until_stock
+            game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : operate until game.round.is_a?(Engine::Round::Stock)
+          end
+
+          def dividend_step
+            game.round.steps.find { |step| step.is_a?(Engine::Step::Dividend) }
+          end
+
+          def par_and_buy(player, id, price, buys)
+            turn_of(player)
+            par(player, id, price)
+            buys.times do
+              turn_of(player)
+              buy(player, id)
+            end
+          end
+
+          # Leaves BE, FB, TB and OB open until WLB buys the first 5 train
+          def play_into_brown
+            { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 100)
+            end
+            3.times do
+              { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            finish_round
+
+            operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3)
+            7.times do
+              play_until_operating
+              operate
+            end
+            expect([a, b, c].map(&:cash)).to eq([290, 410, 390])
+            play_until_stock
+
+            par_and_buy(b, 'WLB', 70, 3)
+            par_and_buy(c, 'FHB', 70, 3)
+            par_and_buy(a, 'WEG', 70, 2)
+            finish_round
+            play_exchange_round
+            operate('WLB' => [[:depot]], 'FHB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]] * 2)
+            play_until_operating
+            operate('FHB' => [[:depot]], 'SB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            play_until_operating
+            advance_to_buy_train
+            act(train_action(game.current_entity, [:depot]))
+          end
+
+          before { play_into_brown }
+
+          it 'exchanges the four remaining privates' do
+            expect(game.phase.name).to eq('5')
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB FHB SB MNB HLB])
+
+            shares = %w[WLB_8 FHB_8 WEG_8 SB_8].map { |id| game.share_by_id(id) }
+            expect(shares.map { |share| share.owner.id }).to eq(%w[b c a b])
+            expect(shares.map(&:buyable)).to all(be(true))
+            expect(%w[BE FB TB OB].map { |id| game.company_by_id(id) }).to all(be_closed)
+          end
+
+          it 'lets WEG operate only from the next operating round' do
+            weg = game.corporation_by_id('WEG')
+            expect(weg).to be_floated
+            expect(game.round.entities).not_to include(weg)
+
+            operate
+            play_until_operating
+            expect(game.round.entities.first.id).to eq('WEG')
+          end
+
+          it 'pays no dividend on the exchanged shares in this operating round' do
+            fhb = game.corporation_by_id('FHB')
+            sb = game.corporation_by_id('SB')
+            expect(c.num_shares_of(fhb)).to eq(6)
+            expect(dividend_step.dividends_for_entity(fhb, c, 10)).to eq(50)
+            expect(dividend_step.dividends_for_entity(sb, b, 10)).to eq(50)
+
+            operate
+            play_until_operating
+            expect(dividend_step.dividends_for_entity(fhb, c, 10)).to eq(60)
           end
         end
 
