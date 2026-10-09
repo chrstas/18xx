@@ -84,7 +84,9 @@ module Engine
 
             entity = game.current_entity
             actions = step.actions(entity)
-            act(if actions.include?('lay_tile') && (lay = lays[entity.id]&.shift)
+            act(if actions.include?('lay_tile') && entity.company?
+                  special_tile_action(entity)
+                elsif actions.include?('lay_tile') && (lay = lays[entity.id]&.shift)
                   hex, tile, rotation = lay
                   Action::LayTile.new(entity, tile: game.tiles.find { |t| t.name == tile }, hex: game.hex_by_id(hex),
                                               rotation: rotation)
@@ -157,10 +159,14 @@ module Engine
         # A legal special tile per private, laid right after its exchange
         let(:special_tiles) { { 'BE' => ['D15', '3', 2], 'TB' => ['I4', '7', 2], 'OB' => ['M12', '7', 0] } }
 
-        def lay_special_tile(company)
+        def special_tile_action(company)
           hex_id, tile_name, rotation = special_tiles[company.id]
           tile = game.tiles.find { |t| t.name == tile_name }
-          act(Action::LayTile.new(company, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
+          Action::LayTile.new(company, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation)
+        end
+
+        def lay_special_tile(company)
+          act(special_tile_action(company))
         end
 
         # Answers every open private in the current exchange round, Decline unless planned
@@ -554,7 +560,21 @@ module Engine
             shares = %w[WLB_8 FHB_8 WEG_8 SB_8].map { |id| game.share_by_id(id) }
             expect(shares.map { |share| share.owner.id }).to eq(%w[b c a b])
             expect(shares.map(&:buyable)).to all(be(true))
-            expect(%w[BE FB TB OB].map { |id| game.company_by_id(id) }).to all(be_closed)
+            expect(game.company_by_id('FB')).to be_closed
+          end
+
+          it 'makes BE, TB and OB lay their special tile in turn before they close' do
+            cash = [a, b].map(&:cash)
+            %w[BE TB OB].each do |id|
+              company = game.company_by_id(id)
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['lay_tile'])
+              lay_special_tile(company)
+              expect(company).to be_closed
+            end
+
+            expect([a, b].map(&:cash)).to eq(cash)
+            expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
           end
 
           it 'lets WEG operate only from the next operating round' do

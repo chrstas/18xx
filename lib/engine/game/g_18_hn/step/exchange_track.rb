@@ -11,33 +11,43 @@ module Engine
           ACTIONS = %w[lay_tile].freeze
 
           def actions(entity)
-            return [] unless entity == @round.exchanged_company
+            return [] unless entity == pending_company
 
             ACTIONS
           end
 
           def description
-            "Lay Track for #{@round.exchanged_company.name}"
+            "Lay Track for #{pending_company.name}"
           end
 
           def blocks?
-            @round.exchanged_company
+            pending_company
+          end
+
+          def active_entities
+            pending_company ? [pending_company] : super
           end
 
           def round_state
-            super.merge(exchanged_company: nil)
+            super.merge(exchanged_companies: [])
           end
 
           def abilities(entity, **kwargs, &block)
-            return unless entity == @round.exchanged_company
+            return unless entity == pending_company
 
             @game.abilities(entity, :tile_lay, time: 'exchange', **kwargs, &block)
           end
 
           def process_lay_tile(action)
             super
-            @round.exchanged_company = nil
+            @round.exchanged_companies.shift
             action.entity.close!
+          end
+
+          private
+
+          def pending_company
+            @round.exchanged_companies.first
           end
         end
       end

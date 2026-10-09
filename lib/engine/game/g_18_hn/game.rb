@@ -330,6 +330,7 @@ module Engine
         def operating_round(round_num)
           Engine::Round::Operating.new(self, [
             Engine::Step::Bankrupt,
+            G18HN::Step::ExchangeTrack,
             G18HN::Step::SpecialBuy,
             G18HN::Step::SpecialTrack,
             Engine::Step::HomeToken,
@@ -391,6 +392,8 @@ module Engine
             @log << "#{company.name} must be exchanged"
             exchange_private!(company)
             @round.non_paying_shares[owner][corporation] += 1
+            # BE, TB and OB stay open for their special tile, see close: never in entities.rb
+            @round.exchanged_companies << company if abilities(company, :tile_lay, time: 'exchange')
           end
           super
         end

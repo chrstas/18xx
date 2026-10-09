@@ -99,6 +99,7 @@ module Engine
             desc: 'Exchange for share of WLB and lay free tile in Bad Wildungen.',
             meta: { start_packet: true },
             abilities: [
+              { type: 'close', on_phase: 'never' },
               {
                 type: 'exchange',
                 corporations: ['WLB'],
@@ -154,6 +155,7 @@ module Engine
             desc: 'Exchange for share of WEG and lay free yellow tile in one Taunus Space.',
             meta: { start_packet: true },
             abilities: [
+              { type: 'close', on_phase: 'never' },
               {
                 type: 'tile_lay',
                 owner_type: 'player',
@@ -182,6 +184,7 @@ module Engine
             desc: 'Exchange for share of SB and lay free yellow tile in one Odenwald Space.',
             meta: { start_packet: true },
             abilities: [
+              { type: 'close', on_phase: 'never' },
               {
                 type: 'tile_lay',
                 owner_type: 'player',

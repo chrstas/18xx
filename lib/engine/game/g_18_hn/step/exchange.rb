@@ -49,7 +49,7 @@ module Engine
             if action.choice == CHOICES[:exchange]
               @game.exchange_private!(entity)
               if @game.abilities(entity, :tile_lay, time: 'exchange')
-                @round.exchanged_company = entity
+                @round.exchanged_companies << entity
               else
                 entity.close!
               end
