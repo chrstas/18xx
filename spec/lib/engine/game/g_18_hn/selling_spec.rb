@@ -142,13 +142,26 @@ module Engine
           game.round.steps.find { |step| step.is_a?(G18HN::Step::Exchange) }
         end
 
+        # A legal special tile per private, laid right after its exchange
+        let(:special_tiles) { { 'BE' => ['D15', '3', 2], 'TB' => ['I4', '7', 2], 'OB' => ['M12', '7', 0] } }
+
+        def lay_special_tile(company)
+          hex_id, tile_name, rotation = special_tiles[company.id]
+          tile = game.tiles.find { |t| t.name == tile_name }
+          act(Action::LayTile.new(company, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
+        end
+
         # Answers every open private in the current exchange round, Decline unless planned
         def play_exchange_round(plan = {})
           round = game.round
           expect(round).to be_a(G18HN::Round::Exchange)
           while game.round.equal?(round)
             entity = game.current_entity
-            act(Action::Choose.new(entity, choice: plan.fetch(entity.id, 'Decline')))
+            if game.round.actions_for(entity).include?('lay_tile')
+              lay_special_tile(entity)
+            else
+              act(Action::Choose.new(entity, choice: plan.fetch(entity.id, 'Decline')))
+            end
           end
         end
 
@@ -353,6 +366,63 @@ module Engine
             action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
             expect { act(action) }.to raise_error(GameError)
             expect(share.owner).to eq(wlb)
+          end
+        end
+
+        context 'special tile on exchange' do
+          def special_track_actions
+            step = game.round.steps.find { |candidate| candidate.is_a?(Engine::Step::SpecialTrack) }
+            %w[BE TB OB].map { |id| step.actions(game.company_by_id(id)) }
+          end
+
+          def exchange_up_to(company)
+            act(Action::Choose.new(game.current_entity, choice: 'Decline')) until game.current_entity == company
+            act(Action::Choose.new(company, choice: 'Exchange'))
+          end
+
+          it 'offers BE, TB and OB no tile lay outside the exchange' do
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(special_track_actions).to all(be_empty)
+
+            stock_round_one
+            finish_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(special_track_actions).to all(be_empty)
+          end
+
+          { 'BE' => 'FB', 'TB' => 'OB', 'OB' => nil }.each do |id, following|
+            it "lets #{id} lay its tile right after the exchange" do
+              play_into_green
+              company = game.company_by_id(id)
+              owner = company.owner
+              exchange_up_to(company)
+
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['lay_tile'])
+              expect(company).not_to be_closed
+
+              cash = owner.cash
+              hex_id, tile_name, = special_tiles[id]
+              lay_special_tile(company)
+              expect(game.hex_by_id(hex_id).tile.name).to eq(tile_name)
+              expect(company).to be_closed
+              expect(owner.cash).to eq(cash)
+
+              if following
+                expect(game.current_entity).to eq(game.company_by_id(following))
+              else
+                expect(game.round).to be_a(Engine::Round::Stock)
+              end
+            end
+          end
+
+          it 'closes FB right after its exchange' do
+            play_into_green
+            fb = game.company_by_id('FB')
+            exchange_up_to(fb)
+
+            expect(fb).to be_closed
+            expect(game.current_entity).to eq(game.company_by_id('TB'))
           end
         end
 

@@ -48,6 +48,11 @@ module Engine
             entity = action.entity
             if action.choice == CHOICES[:exchange]
               @game.exchange_private!(entity)
+              if @game.abilities(entity, :tile_lay, time: 'exchange')
+                @round.exchanged_company = entity
+              else
+                entity.close!
+              end
             else
               @log << "#{entity.id} declines exchange"
               pass!

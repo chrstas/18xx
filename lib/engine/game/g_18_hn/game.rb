@@ -351,6 +351,7 @@ module Engine
         def exchange_round(round_num)
           G18HN::Round::Exchange.new(self, [
             G18HN::Step::Exchange,
+            G18HN::Step::ExchangeTrack,
           ], round_num: round_num)
         end
 
@@ -369,7 +370,6 @@ module Engine
           @share_pool.buy_shares(company.owner, share.to_bundle, exchange: company)
           # 7.1: an exchanged reserved share is ordinary stock and must be buyable from the pool
           share.buyable = true
-          company.close!
         end
 
         def after_phase_change(_name)
