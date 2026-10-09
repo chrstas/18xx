@@ -142,6 +142,16 @@ module Engine
           game.round.steps.find { |step| step.is_a?(G18HN::Step::Exchange) }
         end
 
+        # Answers every open private in the current exchange round, Decline unless planned
+        def play_exchange_round(plan = {})
+          round = game.round
+          expect(round).to be_a(G18HN::Round::Exchange)
+          while game.round.equal?(round)
+            entity = game.current_entity
+            act(Action::Choose.new(entity, choice: plan.fetch(entity.id, 'Decline')))
+          end
+        end
+
         before { auction_all }
 
         context 'first stock round' do
@@ -252,50 +262,97 @@ module Engine
           end
         end
 
-        context 'exchange window' do
-          let(:exchangers) { %w[BE FB TB OB].map { |id| game.company_by_id(id) } }
+        context 'exchange round' do
           let(:wlb) { game.corporation_by_id('WLB') }
-
-          def exchange_actions
-            exchangers.map { |company| exchange_step.actions(company) }
-          end
 
           [3, 4, 5].each do |count|
             context "with #{count} players" do
               let(:players) { count }
 
-              it 'allows no exchange right after the auction' do
-                expect(game.phase.name).to eq('2')
-                expect(exchange_actions).to all(be_empty)
+              it 'holds no exchange round in the yellow phase' do
+                finish_round
 
-                share = wlb.reserved_shares.first
-                action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
-                expect { act(action) }.to raise_error(GameError)
-                expect(share.owner).to eq(wlb)
+                expect(game.round).not_to be_a(G18HN::Round::Exchange)
+                expect(game.log.map(&:message).grep(/exchange/)).to be_empty
               end
             end
           end
 
-          it 'allows no exchange in the first operating round' do
-            stock_round_one
-            expect([a, b, c].map(&:cash)).to eq([40, 280, 340])
-            finish_round
-
-            expect(game.round).to be_a(Engine::Round::Operating)
-            expect(game.phase.name).to eq('2')
-            expect(exchange_actions).to all(be_empty)
-          end
-
-          it 'allows the exchange once the phase is green' do
+          it 'asks the owners of BE, FB, TB and OB in private order' do
             play_into_green
 
             expect(game.phase.name).to eq('3')
+            expect(game.round.entities.map(&:id)).to eq(%w[BE FB TB OB])
+            %w[BE FB TB OB].each do |id|
+              company = game.company_by_id(id)
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['choose'])
+              act(Action::Choose.new(company, choice: 'Decline'))
+            end
+
             expect(game.round).to be_a(Engine::Round::Stock)
             expect(game.turn).to eq(2)
-            expect(%w[SB MNB HLB].map { |id| game.corporation_by_id(id).trains.map(&:name) })
-              .to eq([%w[2 2 2 2], %w[2 3 3 3], %w[2 2 2 2]])
-            expect([a, b, c].map(&:cash)).to eq([55, 315, 365])
-            expect(exchange_actions).to all(eq(['buy_shares']))
+          end
+
+          it 'exchanges each private for the share reserved in its own corporation' do
+            play_into_green
+            expect(exchange_step.choice_name).to eq('Exchange BE for a WLB share')
+
+            shares = %w[WLB FHB WEG SB].map { |id| game.corporation_by_id(id).reserved_shares.first }
+            play_exchange_round('BE' => 'Exchange', 'FB' => 'Exchange', 'TB' => 'Exchange', 'OB' => 'Exchange')
+
+            expect(shares.map { |share| [share.id, share.owner.id] })
+              .to eq([%w[WLB_8 b], %w[FHB_8 c], %w[WEG_8 a], %w[SB_8 b]])
+            expect(shares.map(&:buyable)).to all(be(true))
+            expect(%w[BE FB TB OB].map { |id| game.company_by_id(id) }).to all(be_closed)
+          end
+
+          it 'holds an exchange round before every round in the green phase' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            expect(game.round.round_num).to eq(1)
+            play_exchange_round
+            operate
+            expect(game.round.round_num).to eq(2)
+            play_exchange_round
+          end
+
+          it 'lets a corporation floated by the exchange operate in the next operating round' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            cash = b.cash
+            play_exchange_round('BE' => 'Exchange')
+
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB SB HLB MNB])
+            # HB and OB still pay b, BE no longer does
+            expect(b.cash - cash).to eq(20)
+          end
+
+          it 'allows no exchange in an operating round' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+
+            share = wlb.reserved_shares.first
+            action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
+            expect { act(action) }.to raise_error(GameError)
+            expect(share.owner).to eq(wlb)
+          end
+
+          it 'allows no exchange in a stock round' do
+            play_into_green
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Stock)
+
+            share = wlb.reserved_shares.first
+            action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
+            expect { act(action) }.to raise_error(GameError)
+            expect(share.owner).to eq(wlb)
           end
         end
 
@@ -304,26 +361,24 @@ module Engine
 
           it 'goes to the pool as ordinary stock' do
             play_into_green
-            finish_round
-            expect(game.round).to be_a(Engine::Round::Operating)
-            expect(game.current_entity).to eq(game.corporation_by_id('SB'))
-
             share = wlb.reserved_shares.first
-            act(Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10))
+            expect(share.id).to eq('WLB_8')
+            play_exchange_round('BE' => 'Exchange')
             expect(share.buyable).to be(true)
             expect(wlb).to be_floated
 
-            operate
+            finish_round
+            play_exchange_round
             operate('WLB' => [[:depot]])
-            expect(wlb.trains.map(&:name)).to eq(['3'])
-            expect(wlb.share_price.price).to eq(65)
+            expect(wlb).to be_operated
+            play_exchange_round
+            operate
+            play_exchange_round
 
             turn_of(b)
-            expect(offer(b, 'WLB')).to eq([[10, 65]])
             sell(b, 'WLB', 10)
             expect(share.owner).to eq(game.share_pool)
             turn_of(c)
-            expect(c.cash).to eq(415)
             act(Action::BuyShares.new(c, shares: share, share_price: share.price, percent: 10))
             expect(share.owner).to eq(c)
           end
@@ -352,10 +407,14 @@ module Engine
             finish_round
 
             operate('MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 2, 'VB' => [[:depot]] * 2, 'FWN' => [[:depot]] * 4)
+            play_exchange_round
             finish_round
+            play_exchange_round
             operate('MNB' => [['HLB', price]], 'HLB' => [[:depot]] * 3, 'VB' => [[:depot]])
+            play_exchange_round
             # first 4: phase 4 rusts the 2s, MNB is left without a train
             operate('VB' => [[:depot]])
+            play_exchange_round
 
             turn_of(c)
             par(c, 'LTB', 70)
@@ -366,6 +425,7 @@ module Engine
               buy(a, 'LTB')
             end
             finish_round
+            play_exchange_round
 
             advance_to_buy_train
             step = game.round.active_step
@@ -410,7 +470,7 @@ module Engine
         it 'offers nothing of an exchanged corporation without par price' do
           play_into_green(with_wlb: false)
           wlb = game.corporation_by_id('WLB')
-          act(Action::BuyShares.new(game.company_by_id('BE'), shares: wlb.reserved_shares.first, percent: 10))
+          play_exchange_round('BE' => 'Exchange')
           expect(wlb.ipoed).to be_falsey
           expect(game.sellable_bundles(b, wlb)).to eq([])
         end

@@ -282,7 +282,7 @@ module Engine
         end
 
         def new_auction_round
-          Round::Auction.new(self, [
+          Engine::Round::Auction.new(self, [
             Engine::Step::SelectionAuction,
           ])
         end
@@ -292,19 +292,25 @@ module Engine
         def next_round!
           @round =
             case @round
-            when Round::Stock
+            when Engine::Round::Stock
               @operating_rounds = @phase.operating_rounds
               reorder_players
-              new_operating_round
-            when Round::Operating
+              new_exchange_round(Engine::Round::Operating)
+            when G18HN::Round::Exchange
+              if @round_after_exchange == Engine::Round::Stock
+                new_stock_round
+              else
+                new_operating_round(@round.round_num)
+              end
+            when Engine::Round::Operating
               if @round.round_num < @operating_rounds
                 or_round_finished
-                new_operating_round(@round.round_num + 1)
+                new_exchange_round(Engine::Round::Operating, @round.round_num + 1)
               else
                 @turn += 1
                 or_round_finished
                 or_set_finished
-                new_stock_round
+                new_exchange_round(Engine::Round::Stock)
               end
             when init_round.class
               init_round_finished
@@ -314,18 +320,16 @@ module Engine
         end
 
         def stock_round
-          Round::Stock.new(self, [
+          Engine::Round::Stock.new(self, [
             Engine::Step::DiscardTrain,
-            G18HN::Step::Exchange,
             Engine::Step::SpecialTrack,
             Engine::Step::BuySellParShares,
           ])
         end
 
         def operating_round(round_num)
-          Round::Operating.new(self, [
+          Engine::Round::Operating.new(self, [
             Engine::Step::Bankrupt,
-            G18HN::Step::Exchange,
             G18HN::Step::SpecialBuy,
             G18HN::Step::SpecialTrack,
             Engine::Step::HomeToken,
@@ -336,6 +340,36 @@ module Engine
             Engine::Step::DiscardTrain,
             G18HN::Step::BuyTrain,
           ], round_num: round_num)
+        end
+
+        # 8.1: in the green phase the owners of BE, FB, TB and OB may exchange between rounds
+        def new_exchange_round(next_round, round_num = 1)
+          @round_after_exchange = next_round
+          exchange_round(round_num)
+        end
+
+        def exchange_round(round_num)
+          G18HN::Round::Exchange.new(self, [
+            G18HN::Step::Exchange,
+          ], round_num: round_num)
+        end
+
+        def exchange_order
+          @companies.select { |company| !company.closed? && abilities(company, :exchange) }
+        end
+
+        def exchange_share(company)
+          return unless (ability = abilities(company, :exchange))
+
+          exchange_corporations(ability).first&.reserved_shares&.first
+        end
+
+        def exchange_private!(company)
+          share = exchange_share(company)
+          @share_pool.buy_shares(company.owner, share.to_bundle, exchange: company)
+          # 7.1: an exchanged reserved share is ordinary stock and must be buyable from the pool
+          share.buyable = true
+          company.close!
         end
 
         def after_phase_change(_name)
