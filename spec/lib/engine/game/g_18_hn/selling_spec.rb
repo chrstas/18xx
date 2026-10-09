@@ -103,6 +103,45 @@ module Engine
           game.sellable_bundles(player, game.corporation_by_id(id)).map { |bundle| [bundle.percent, bundle.price_per_share] }
         end
 
+        def stock_round_one(with_wlb: true)
+          turn_of(b)
+          par(b, 'SB', 70)
+          if with_wlb
+            turn_of(a)
+            par(a, 'WLB', 70)
+          end
+          turn_of(c)
+          par(c, 'HLB', 70)
+          3.times do
+            turn_of(b)
+            buy(b, 'SB')
+            turn_of(c)
+            buy(c, 'HLB')
+          end
+          if with_wlb
+            2.times do
+              turn_of(a)
+              buy(a, 'WLB')
+            end
+          end
+          turn_of(a)
+          par(a, 'MNB', 70)
+          3.times do
+            turn_of(a)
+            buy(a, 'MNB')
+          end
+        end
+
+        def play_into_green(with_wlb: true)
+          stock_round_one(with_wlb: with_wlb)
+          finish_round
+          operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 4)
+        end
+
+        def exchange_step
+          game.round.steps.find { |step| step.is_a?(G18HN::Step::Exchange) }
+        end
+
         before { auction_all }
 
         context 'first stock round' do
@@ -213,34 +252,84 @@ module Engine
           end
         end
 
-        context 'exchanged reserve share (E26)' do
+        context 'exchange window' do
+          let(:exchangers) { %w[BE FB TB OB].map { |id| game.company_by_id(id) } }
+          let(:wlb) { game.corporation_by_id('WLB') }
+
+          def exchange_actions
+            exchangers.map { |company| exchange_step.actions(company) }
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'allows no exchange right after the auction' do
+                expect(game.phase.name).to eq('2')
+                expect(exchange_actions).to all(be_empty)
+
+                share = wlb.reserved_shares.first
+                action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
+                expect { act(action) }.to raise_error(GameError)
+                expect(share.owner).to eq(wlb)
+              end
+            end
+          end
+
+          it 'allows no exchange in the first operating round' do
+            stock_round_one
+            expect([a, b, c].map(&:cash)).to eq([40, 280, 340])
+            finish_round
+
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.phase.name).to eq('2')
+            expect(exchange_actions).to all(be_empty)
+          end
+
+          it 'allows the exchange once the phase is green' do
+            play_into_green
+
+            expect(game.phase.name).to eq('3')
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.turn).to eq(2)
+            expect(%w[SB MNB HLB].map { |id| game.corporation_by_id(id).trains.map(&:name) })
+              .to eq([%w[2 2 2 2], %w[2 3 3 3], %w[2 2 2 2]])
+            expect([a, b, c].map(&:cash)).to eq([55, 315, 365])
+            expect(exchange_actions).to all(eq(['buy_shares']))
+          end
+        end
+
+        context 'exchanged reserve share' do
           let(:wlb) { game.corporation_by_id('WLB') }
 
           it 'goes to the pool as ordinary stock' do
-            turn_of(a)
-            par(a, 'WLB', 70)
-            2.times do
-              turn_of(a)
-              buy(a, 'WLB')
-            end
-            turn_of(b)
+            play_into_green
+            finish_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.current_entity).to eq(game.corporation_by_id('SB'))
+
             share = wlb.reserved_shares.first
             act(Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10))
             expect(share.buyable).to be(true)
             expect(wlb).to be_floated
 
-            finish_round
+            operate
             operate('WLB' => [[:depot]])
+            expect(wlb.trains.map(&:name)).to eq(['3'])
+            expect(wlb.share_price.price).to eq(65)
+
             turn_of(b)
+            expect(offer(b, 'WLB')).to eq([[10, 65]])
             sell(b, 'WLB', 10)
             expect(share.owner).to eq(game.share_pool)
             turn_of(c)
+            expect(c.cash).to eq(415)
             act(Action::BuyShares.new(c, shares: share, share_price: share.price, percent: 10))
             expect(share.owner).to eq(c)
           end
         end
 
-        context 'emergency sale (E25)' do
+        context 'emergency sale' do
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }
 
@@ -319,6 +408,7 @@ module Engine
         end
 
         it 'offers nothing of an exchanged corporation without par price' do
+          play_into_green(with_wlb: false)
           wlb = game.corporation_by_id('WLB')
           act(Action::BuyShares.new(game.company_by_id('BE'), shares: wlb.reserved_shares.first, percent: 10))
           expect(wlb.ipoed).to be_falsey
