@@ -475,8 +475,9 @@ module Engine
             return hexes.all? { |id| hex_by_id(id).tile.color != :white }
           end
 
+          # 8.4.3: a city full of other companies' stations blocks a stop, an off-board area never does
           stops = self.class::OBLIGATIONS[corporation.id].map do |ids|
-            ids.flat_map { |id| hex_by_id(id).tile.nodes }.reject { |node| node.blocks?(corporation) }
+            ids.flat_map { |id| hex_by_id(id).tile.nodes }.reject { |node| node.city? && node.blocks?(corporation) }
           end
           return false if stops.any?(&:empty?)
 
@@ -491,6 +492,8 @@ module Engine
 
           targets, *later = stops
           ahead = visited.merge(later.flatten.to_h { |later_node| [later_node, true] })
+          # this leg starts at the stop reached last, which must not count as visited
+          ahead.delete(node)
           node.walk(corporation: corporation, skip_paths: skip_paths, visited: ahead,
                     visited_paths: visited_paths.dup) do |path, paths, nodes|
             (path.nodes & targets).each do |target|

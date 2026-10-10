@@ -864,6 +864,17 @@ module Engine
             expect { operate_with_tiles('FHB' => [['E18', '5', 4]]) }.to change(fhb, :cash).by(330)
           end
 
+          it 'completes HLB from the Rheinland through Bingen and Mainz to the Pfalz' do
+            found(c, 'HLB')
+            lay_in_turn('HLB', [['K8', '920', 0], ['K6', '9', 1], ['K4', '6', 2], ['L7', '9', 0]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('HLB' => [['M6', '4', 0]])
+            expect(met).to eq(['HLB'])
+            expect(game.log.map(&:message).count('HLB receives 350M')).to eq(2)
+          end
+
           it 'completes SB once the three Odenwald hexes are built' do
             found(b, 'SB')
             lay_in_turn('SB', [['L11', '927', 1], ['M12', '9', 2], ['N13', '58', 0]])
