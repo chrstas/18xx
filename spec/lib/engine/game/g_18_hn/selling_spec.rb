@@ -65,8 +65,8 @@ module Engine
           play_operating_round(plan, false)
         end
 
-        def advance_to_buy_train(plan = {})
-          play_operating_round(plan, true)
+        def advance_to_buy_train(plan = {}, lays = {})
+          play_operating_round(plan, true, lays)
         end
 
         # lays: { corporation => [[hex, tile, rotation], ...] }, one entry per operating turn
@@ -551,6 +551,9 @@ module Engine
             end
           end
 
+          # WLB's tiles in its first operating round and in the one in which it buys the first 5 train
+          let(:wlb_lays) { [[], []] }
+
           # Leaves BE, FB, TB and OB open until WLB buys the first 5 train
           def play_into_brown
             { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
@@ -578,11 +581,12 @@ module Engine
             par_and_buy(a, 'WEG', 70, 2)
             finish_round
             play_exchange_round
-            operate('WLB' => [[:depot]], 'FHB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]] * 2)
+            operate_with_tiles({ 'WLB' => wlb_lays.first },
+                               { 'WLB' => [[:depot]], 'FHB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]] * 2 })
             play_until_operating
             operate('FHB' => [[:depot]], 'SB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]])
             play_until_operating
-            advance_to_buy_train
+            advance_to_buy_train({}, { 'WLB' => wlb_lays.last })
             act(train_action(game.current_entity, [:depot]))
           end
 
@@ -612,6 +616,23 @@ module Engine
 
             expect([a, b].map(&:cash)).to eq(cash)
             expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+          end
+
+          context 'with D15 built in the same operating round' do
+            let(:wlb_lays) { [[['C14', '5', 4]], [['D15', '3', 2]]] }
+
+            it 'closes BE without its special tile' do
+              company = game.company_by_id('BE')
+              expect(game.hex_by_id('D15').tile.name).to eq('3')
+              expect(game.share_by_id('WLB_8').owner).to eq(b)
+              expect(company).to be_closed
+              expect(game.round.exchanged_companies).not_to include(company)
+              expect(game.current_entity).to eq(game.company_by_id('TB'))
+
+              lay_special_tile(game.company_by_id('TB'))
+              lay_special_tile(game.company_by_id('OB'))
+              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            end
           end
 
           it 'lets WEG operate only from the next operating round' do

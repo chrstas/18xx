@@ -408,7 +408,11 @@ module Engine
             exchange_private!(company)
             @round.non_paying_shares[owner][corporation] += 1
             # BE, TB and OB stay open for their special tile, see close: never in entities.rb
-            @round.exchanged_companies << company if abilities(company, :tile_lay, time: 'exchange')
+            if special_hexes_built?(company)
+              company.close!
+            elsif abilities(company, :tile_lay, time: 'exchange')
+              @round.exchanged_companies << company
+            end
           end
           super
         end
