@@ -887,6 +887,33 @@ module Engine
             expect(game.log.map(&:message).count('HLB receives 350M')).to eq(2)
           end
 
+          context 'with HLB one tile short of its route' do
+            let(:hlb) { game.corporation_by_id('HLB') }
+
+            def hlb_legs_connected?
+              stops = Game::OBLIGATIONS['HLB'].map { |ids| ids.flat_map { |id| game.hex_by_id(id).tile.nodes } }
+              game.legs_connected?(stops, hlb, game.graph_skip_paths(hlb))
+            end
+
+            before do
+              found(c, 'HLB')
+              lay_in_turn('HLB', [['K8', '920', 0], ['K6', '9', 1], ['K4', '6', 2], ['L7', '9', 0]])
+              finish_round
+            end
+
+            it 'needs every leg connected before it searches a route' do
+              expect(hlb_legs_connected?).to be(false)
+              operate_with_tiles('HLB' => [['M6', '4', 0]])
+              expect(hlb_legs_connected?).to be(true)
+            end
+
+            it 'leaves the obligation open when the search reaches its walk limit' do
+              stub_const("#{Game}::OBLIGATION_WALK_LIMIT", 10)
+              operate_with_tiles('HLB' => [['M6', '4', 0]])
+              expect(met).to be_empty
+            end
+          end
+
           it 'completes SB once the three Odenwald hexes are built' do
             found(b, 'SB')
             lay_in_turn('SB', [['L11', '927', 1], ['M12', '9', 2], ['N13', '58', 0]])

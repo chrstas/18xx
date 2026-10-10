@@ -33,6 +33,10 @@ module Engine
         HOME_TOKEN_TIMING = :operate
 
         RIGHT_COST = 40
+
+        # node walks one obligation search may take before it waits for the next build
+        OBLIGATION_WALK_LIMIT = 20_000
+
         MUST_BUY_TRAIN = :always
 
         CORPORATION_CLASS = G18HN::Corporation
@@ -480,13 +484,56 @@ module Engine
           end
           return false if stops.any?(&:empty?)
 
-          first, *rest = stops
           skip_paths = graph_skip_paths(corporation)
-          first.any? { |node| route_from?(node, rest, corporation, skip_paths, {}, {}) }
+          return false unless legs_connected?(stops, corporation, skip_paths)
+
+          first, *rest = stops
+          walks = Hash.new(0)
+          first.any? { |node| route_from?(node, rest, corporation, skip_paths, {}, {}, walks) }
+        end
+
+        # each leg on its own, without passing the other stops; a route needs this, and it is cheap to check
+        def legs_connected?(stops, corporation, skip_paths)
+          (0...(stops.size - 1)).all? do |index|
+            walls = (stops.take(index) + stops.drop(index + 2)).flatten.to_h { |other| [other, true] }
+            track_connects?(stops[index], stops[index + 1], corporation, skip_paths, walls)
+          end
+        end
+
+        # loose islands as in Graph::Pruner: ignoring gauge, lanes and reversing only adds track, never removes it
+        def track_connects?(from, targets, corporation, skip_paths, walls)
+          seen = {}
+          queue = from.flat_map(&:paths).reject { |path| skip_paths&.key?(path) }
+          until queue.empty?
+            path = queue.pop
+            next if seen[path]
+
+            seen[path] = true
+            return true if (path.nodes & targets).any?
+
+            neighbors = track_neighbors(path, corporation, walls)
+            queue.concat(neighbors.reject { |other| seen[other] || skip_paths&.key?(other) })
+          end
+          false
+        end
+
+        def track_neighbors(path, corporation, walls)
+          neighbors = path.junction ? path.junction.paths.dup : []
+          path.exits.each do |edge|
+            next unless (hex = path.hex.neighbors[edge])
+
+            neighbors.concat(hex.paths[path.hex.invert(edge)])
+          end
+          unless path.terminal?
+            path.nodes.each do |node|
+              neighbors.concat(node.paths) if !walls[node] && !node.blocks?(corporation)
+            end
+          end
+          neighbors
         end
 
         # 8.4.3: one route an unlimited train could run, through the stops in printed order
-        def route_from?(node, stops, corporation, skip_paths, visited, visited_paths)
+        def route_from?(node, stops, corporation, skip_paths, visited, visited_paths, walks)
           return true if stops.empty?
 
           targets, *later = stops
@@ -494,9 +541,12 @@ module Engine
           # this leg starts at the stop reached last, which must not count as visited
           ahead.delete(node)
           node.walk(corporation: corporation, skip_paths: skip_paths, visited: ahead,
-                    visited_paths: visited_paths.dup) do |path, paths, nodes|
+                    visited_paths: visited_paths.dup, walk_calls: walks) do |path, paths, nodes|
+            # dense networks: give up for now, the next build checks again
+            return false if walks[:all] > self.class::OBLIGATION_WALK_LIMIT
+
             (path.nodes & targets).each do |target|
-              return true if route_from?(target, later, corporation, skip_paths, nodes.dup, paths.dup)
+              return true if route_from?(target, later, corporation, skip_paths, nodes.dup, paths.dup, walks)
             end
           end
           false
