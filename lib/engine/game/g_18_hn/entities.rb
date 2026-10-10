@@ -4,6 +4,8 @@ module Engine
   module Game
     module G18HN
       module Entities
+        HANAU_HEX = 'J15'
+
         COMPANIES = [
           {
             name: 'Homburger Bahn',
@@ -132,7 +134,7 @@ module Engine
               {
                 type: 'token',
                 owner_type: 'player',
-                hexes: ['J15'],
+                hexes: [HANAU_HEX],
                 when: 'any',
                 count: 1,
               },

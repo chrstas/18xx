@@ -53,7 +53,6 @@ module Engine
         CONCESSION_REGIONS = { 'WC' => 'WAL', 'HKC' => 'KAS', 'NC' => 'NAS', 'HDC' => 'DAR' }.freeze
 
         CONCESSIONS = %w[WC HKC NC HDC FC].freeze
-        HANAU_HEX = 'J15'
 
         # transit bonus: each region pays its own row's value for the other region's direction
         TRANSIT_REGIONS = {
@@ -368,7 +367,7 @@ module Engine
         def exchange_share(company)
           return unless (ability = abilities(company, :exchange))
 
-          exchange_corporations(ability).first&.reserved_shares&.first
+          exchange_corporations(ability).first.reserved_shares.first
         end
 
         def exchange_private!(company)
