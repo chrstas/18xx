@@ -6,6 +6,22 @@ module Engine
       module Entities
         HANAU_HEX = 'J15'
 
+        # 11.1: obligated track routes in printed order, each stop lists the hexes that count for it
+        OBLIGATIONS = {
+          'WEG' => [%w[J9], %w[J5], %w[J3 G2]],
+          'LTB' => [%w[J3 G2], %w[H7], %w[G10]],
+          'MNB' => [%w[O10], %w[N11], %w[L11], %w[J11 J13]],
+          'HLB' => [%w[J3 G2], %w[K4], %w[K8], %w[N5 O8]],
+          'VB' => [%w[F17], %w[G12]],
+          'MWB' => [%w[F13], %w[G12], %w[J11 J13]],
+          'FWN' => [%w[D17], %w[C18], %w[A18]],
+          'FHB' => [%w[G20], %w[E18]],
+          'WLB' => [%w[D15], %w[C14], %w[B15]],
+        }.freeze
+
+        # 11.1: SB's obligation is to build all three Odenwald hexes
+        BUILT_OBLIGATIONS = { 'SB' => %w[M12 N13 O12] }.freeze
+
         COMPANIES = [
           {
             name: 'Homburger Bahn',
@@ -271,7 +287,6 @@ module Engine
             reserved_shares: [10],
             coordinates: 'L11',
             color: :gray,
-            destination_coordinates: %w[M12 N13 O12],
           },
           {
             float_percent: 50,
@@ -282,7 +297,6 @@ module Engine
             tokens: [0, 40, 100],
             coordinates: 'N11',
             color: :blue,
-            destination_coordinates: %w[O10 N11 L11 J11 J13],
           },
           {
             float_percent: 50,
@@ -294,7 +308,6 @@ module Engine
             coordinates: 'K8',
             color: :white,
             text_color: 'black',
-            destination_coordinates: %w[J3 G2 K4 K8 N5 O8],
           },
           {
             float_percent: 50,
@@ -305,7 +318,6 @@ module Engine
             tokens: [0, 40, 100],
             coordinates: 'F17',
             color: :brown,
-            destination_coordinates: %w[F17 G12],
           },
           {
             float_percent: 50,
@@ -319,7 +331,6 @@ module Engine
             coordinates: 'J9',
             color: :'#ADD8E6',
             text_color: :green,
-            destination_coordinates: %w[J9 J5 J3 G2],
           },
           {
             float_percent: 50,
@@ -331,7 +342,6 @@ module Engine
             coordinates: 'H7',
             color: :orange,
             text_color: 'black',
-            destination_coordinates: %w[J3 G2 H7 G10],
           },
           {
             float_percent: 50,
@@ -345,7 +355,6 @@ module Engine
             reserved_shares: [10],
             city: 0,
             color: :purple,
-            destination_coordinates: %w[G20 E18],
           },
           {
             float_percent: 50,
@@ -356,7 +365,6 @@ module Engine
             tokens: [0, 40, 100],
             coordinates: 'F13',
             color: :red,
-            destination_coordinates: %w[F13 G12 J11],
           },
           {
             float_percent: 50,
@@ -369,7 +377,6 @@ module Engine
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
             reserved_shares: [10],
             city: 0,
-            destination_coordinates: %w[B15 C14 D15],
             color: :yellow,
             text_color: :black,
           },
@@ -382,7 +389,6 @@ module Engine
             tokens: [0, 40, 100],
             coordinates: 'C18',
             color: :lightgreen,
-            destination_coordinates: %w[A18 B17 C18 D17],
           },
         ].freeze
       end

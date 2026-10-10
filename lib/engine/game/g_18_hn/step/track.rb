@@ -23,6 +23,7 @@ module Engine
             raise GameError, 'Only the FL private may build in Frankfurt' if @game.frankfurt_track_blocked?(hex)
 
             super
+            @game.check_obligations!
           end
         end
       end

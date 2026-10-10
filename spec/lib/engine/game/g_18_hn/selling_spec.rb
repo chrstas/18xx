@@ -770,6 +770,51 @@ module Engine
           end
         end
 
+        context 'obligated track route' do
+          def found(player, id)
+            turn_of(player)
+            par(player, id, 70)
+            3.times do
+              turn_of(player)
+              buy(player, id)
+            end
+            finish_round
+          end
+
+          # one tile per operating round; the first round also buys the forced train
+          def lay_in_turn(id, lays)
+            lays.each_with_index do |lay, index|
+              finish_round unless index.zero?
+              operate_with_tiles({ id => [lay] }, index.zero? ? { id => [[:depot]] } : {})
+            end
+          end
+
+          def met
+            game.corporations.select { |corporation| game.obligation_met?(corporation) }.map(&:id)
+          end
+
+          it 'completes FHB from Fulda to Bad Hersfeld with the last tile' do
+            found(c, 'FHB')
+            lay_in_turn('FHB', [['G20', '5', 1], ['F19', '9', 2]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('FHB' => [['E18', '5', 4]])
+            expect(met).to eq(['FHB'])
+            expect(game.log.map(&:message)).to include('FHB completes its obligated track route')
+          end
+
+          it 'completes SB once the three Odenwald hexes are built' do
+            found(b, 'SB')
+            lay_in_turn('SB', [['L11', '927', 1], ['M12', '9', 2], ['N13', '58', 0]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('SB' => [['O12', '3', 2]])
+            expect(met).to eq(['SB'])
+          end
+        end
+
         context 'emergency sale' do
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }

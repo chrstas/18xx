@@ -12,6 +12,7 @@ module Engine
           def process_lay_tile(action)
             super
             add_frankfurt_income(action.entity)
+            @game.check_obligations!
           end
 
           private

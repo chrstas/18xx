@@ -237,6 +237,8 @@ module Engine
           entity.spend(RIGHT_COST, seller)
           grant_right(entity, concession)
           @log << "#{entity.name} buys the #{concession.name} from #{seller.name} for #{format_currency(RIGHT_COST)}"
+          # 8.4.3: a route through another country counts once the concession is bought
+          check_obligations!
         end
 
         def grant_right(corporation, concession_company)
@@ -279,6 +281,7 @@ module Engine
         def setup
           super
           @granted_rights = Hash.new { |h, k| h[k] = Set.new }
+          @obligations_met = Set.new
           # 5.3 / 8.4.4: FHB's second free station waits for Hanau, whose slot stays reserved until then
           fhb = corporation_by_id('FHB')
           fhb.tokens << Engine::Token.new(fhb, type: :hanau)
@@ -427,8 +430,44 @@ module Engine
           Array(ability.hexes).all? { |id| hex_by_id(id).tile.color != :white }
         end
 
-        def after_phase_change(_name)
+        def after_phase_change(name)
           clear_graph
+          # 8.4.3: from brown on (phase 5) a route through another country needs no concession
+          check_obligations! if name == '5'
+        end
+
+        def obligation_met?(corporation)
+          @obligations_met.include?(corporation)
+        end
+
+        # 8.4.3: any build can complete the obligation of any company
+        def check_obligations!
+          @corporations.each do |corporation|
+            next if obligation_met?(corporation) || !obligation_complete?(corporation)
+
+            @obligations_met << corporation
+            @log << "#{corporation.name} completes its obligated track route"
+          end
+        end
+
+        def obligation_complete?(corporation)
+          if (hexes = self.class::BUILT_OBLIGATIONS[corporation.id])
+            return hexes.all? { |id| hex_by_id(id).tile.color != :white }
+          end
+
+          stops = self.class::OBLIGATIONS[corporation.id].map do |ids|
+            ids.flat_map { |id| hex_by_id(id).tile.nodes }.reject { |node| node.blocks?(corporation) }
+          end
+          skip_paths = graph_skip_paths(corporation)
+          stops.each_cons(2).all? { |from, to| from.any? { |node| reaches?(node, to, corporation, skip_paths) } }
+        end
+
+        # 8.4.3: an unlimited train could run from node to one of the targets
+        def reaches?(node, targets, corporation, skip_paths)
+          node.walk(corporation: corporation, skip_paths: skip_paths) do |path|
+            return true if (path.nodes & targets).any?
+          end
+          false
         end
 
         def national_hexes(corporation_id)

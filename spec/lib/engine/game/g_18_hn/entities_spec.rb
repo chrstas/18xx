@@ -50,6 +50,18 @@ module Engine
             expect(reserved.select { |_, percent| percent.positive? }).to eq('SB' => 10, 'WEG' => 10, 'FHB' => 10, 'WLB' => 10)
             expect(reserved.reject { |_, percent| percent.positive? }.keys).to eq(%w[MNB HLB VB LTB MWB FWN])
           end
+
+          it 'gives every corporation one obligation whose stops are cities, towns or off-board areas' do
+            ids = described_class::OBLIGATIONS.keys + described_class::BUILT_OBLIGATIONS.keys
+
+            expect(ids).to match_array(game.corporations.map(&:id))
+            described_class::OBLIGATIONS.each do |id, stops|
+              stops.flatten.each do |hex|
+                tile = game.hex_by_id(hex).tile
+                expect(tile.cities + tile.towns + tile.offboards).not_to be_empty, "#{id} #{hex}"
+              end
+            end
+          end
         end
       end
     end
