@@ -458,14 +458,24 @@ module Engine
           stops = self.class::OBLIGATIONS[corporation.id].map do |ids|
             ids.flat_map { |id| hex_by_id(id).tile.nodes }.reject { |node| node.blocks?(corporation) }
           end
+          return false if stops.any?(&:empty?)
+
+          first, *rest = stops
           skip_paths = graph_skip_paths(corporation)
-          stops.each_cons(2).all? { |from, to| from.any? { |node| reaches?(node, to, corporation, skip_paths) } }
+          first.any? { |node| route_from?(node, rest, corporation, skip_paths, {}, {}) }
         end
 
-        # 8.4.3: an unlimited train could run from node to one of the targets
-        def reaches?(node, targets, corporation, skip_paths)
-          node.walk(corporation: corporation, skip_paths: skip_paths) do |path|
-            return true if (path.nodes & targets).any?
+        # 8.4.3: one route an unlimited train could run, through the stops in printed order
+        def route_from?(node, stops, corporation, skip_paths, visited, visited_paths)
+          return true if stops.empty?
+
+          targets, *later = stops
+          ahead = visited.merge(later.flatten.to_h { |later_node| [later_node, true] })
+          node.walk(corporation: corporation, skip_paths: skip_paths, visited: ahead,
+                    visited_paths: visited_paths.dup) do |path, paths, nodes|
+            (path.nodes & targets).each do |target|
+              return true if route_from?(target, later, corporation, skip_paths, nodes.dup, paths.dup)
+            end
           end
           false
         end

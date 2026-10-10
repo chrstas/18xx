@@ -70,13 +70,15 @@ module Engine
         end
 
         # lays: { corporation => [[hex, tile, rotation], ...] }, one entry per operating turn
-        def operate_with_tiles(lays, plan = {})
-          play_operating_round(plan, false, lays)
+        def operate_with_tiles(lays, plan = {}, tokens = {})
+          play_operating_round(plan, false, lays, tokens)
         end
 
-        def play_operating_round(plan, stop_at_buy_train, lays = {})
+        # tokens: { corporation => hex }, placed in the first token step of that corporation
+        def play_operating_round(plan, stop_at_buy_train, lays = {}, tokens = {})
           plan = plan.transform_values(&:dup)
           lays = lays.transform_values(&:dup)
+          tokens = tokens.dup
           round = game.round
           while game.round.equal?(round)
             step = game.round.active_step
@@ -90,6 +92,8 @@ module Engine
                   hex, tile, rotation = lay
                   Action::LayTile.new(entity, tile: game.tiles.find { |t| t.name == tile }, hex: game.hex_by_id(hex),
                                               rotation: rotation)
+                elsif actions.include?('place_token') && (hex = tokens.delete(entity.id))
+                  Action::PlaceToken.new(entity, city: game.hex_by_id(hex).tile.cities.first, slot: 0)
                 elsif actions.include?('run_routes')
                   Action::RunRoutes.new(entity, routes: [])
                 elsif actions.include?('dividend')
@@ -812,6 +816,50 @@ module Engine
             finish_round
             operate_with_tiles('SB' => [['O12', '3', 2]])
             expect(met).to eq(['SB'])
+          end
+
+          it 'needs one route through the stops in printed order' do
+            found(a, 'FWN')
+            # Kassel and Bad Karlshafen hang on two branches from Fritzlar, a route would pass Fritzlar twice
+            lay_in_turn('FWN', [['C18', '927', 0], ['D17', '3', 2], ['C16', '6', 3], ['B17', '4', 0], ['A18', '3', 5]])
+            expect(met).to be_empty
+          end
+
+          context 'with FWN building towards Bad Hersfeld' do
+            before do
+              turn_of(c)
+              par(c, 'FHB', 70)
+              turn_of(a)
+              par(a, 'FWN', 70)
+              3.times do
+                turn_of(c)
+                buy(c, 'FHB')
+                turn_of(a)
+                buy(a, 'FWN')
+              end
+              finish_round
+              operate_with_tiles({ 'FHB' => [['G20', '5', 1]], 'FWN' => [['C18', '927', 0]] },
+                                 { 'FHB' => [[:depot]], 'FWN' => [[:depot]] })
+              finish_round
+            end
+
+            it 'completes FHB when FWN lays the last tile' do
+              operate_with_tiles('FHB' => [['F19', '9', 2]], 'FWN' => [['D17', '58', 3]])
+              expect(met).to be_empty
+              finish_round
+              operate_with_tiles('FWN' => [['E18', '57', 2]])
+              expect(met).to eq(['FHB'])
+            end
+
+            it 'blocks FHB at Bad Hersfeld once FWN holds its only station' do
+              operate_with_tiles('FWN' => [['D17', '58', 3]])
+              finish_round
+              operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' })
+              expect(game.hex_by_id('E18').tile.cities.first.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
+              finish_round
+              operate_with_tiles('FHB' => [['F19', '9', 2]])
+              expect(met).to be_empty
+            end
           end
         end
 
