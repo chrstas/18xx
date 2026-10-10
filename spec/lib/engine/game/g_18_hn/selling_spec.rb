@@ -359,6 +359,38 @@ module Engine
             expect(game.round.active_step.actions(game.company_by_id('BE'))).to eq(['choose'])
             play_exchange_round('BE' => 'Exchange')
             expect(b.percent_of(wlb)).to eq(70)
+
+            expect(game.round).to be_a(Engine::Round::Stock)
+            turn_of(b)
+            expect(game.round.active_step.actions(b)).to include('pass')
+          end
+
+          it 'lets a player buy from the open market beyond 60 percent, but not from the IPO' do
+            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 70)
+            end
+            3.times do
+              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            turn_of(b)
+            buy(b, 'WLB')
+            turn_of(a)
+            buy(a, 'WLB')
+            finish_round
+            operate('WLB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            turn_of(a)
+            sell(a, 'WLB', 10)
+            turn_of(b)
+
+            step = game.round.active_step
+            expect(step.can_buy?(b, wlb.ipo_shares.find(&:buyable).to_bundle)).to be(false)
+            pool_share = game.share_pool.shares_by_corporation[wlb].first
+            act(Action::BuyShares.new(b, shares: pool_share, share_price: pool_share.price, percent: pool_share.percent))
+            expect(b.percent_of(wlb)).to eq(70)
           end
 
           it 'holds an exchange round before every round in the green phase' do

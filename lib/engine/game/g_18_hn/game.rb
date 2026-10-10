@@ -327,7 +327,7 @@ module Engine
           Engine::Round::Stock.new(self, [
             Engine::Step::DiscardTrain,
             Engine::Step::SpecialTrack,
-            Engine::Step::BuySellParShares,
+            G18HN::Step::BuySellParShares,
           ])
         end
 
@@ -414,6 +414,11 @@ module Engine
             end
           end
           super
+        end
+
+        # 7.1: a player may hold more than 60 percent through exchange or the open market
+        def can_hold_above_corp_limit?(_entity)
+          true
         end
 
         def special_hexes_built?(company)
