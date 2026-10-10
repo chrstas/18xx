@@ -365,34 +365,6 @@ module Engine
             expect(game.round.active_step.actions(b)).to include('pass')
           end
 
-          it 'lets a player buy from the open market beyond 60 percent, but not from the IPO' do
-            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
-              turn_of(player)
-              par(player, id, 70)
-            end
-            3.times do
-              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
-                turn_of(player)
-                buy(player, id)
-              end
-            end
-            turn_of(b)
-            buy(b, 'WLB')
-            turn_of(a)
-            buy(a, 'WLB')
-            finish_round
-            operate('WLB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
-            turn_of(a)
-            sell(a, 'WLB', 10)
-            turn_of(b)
-
-            step = game.round.active_step
-            expect(step.can_buy?(b, wlb.ipo_shares.find(&:buyable).to_bundle)).to be(false)
-            pool_share = game.share_pool.shares_by_corporation[wlb].first
-            act(Action::BuyShares.new(b, shares: pool_share, share_price: pool_share.price, percent: pool_share.percent))
-            expect(b.percent_of(wlb)).to eq(70)
-          end
-
           it 'holds an exchange round before every round in the green phase' do
             play_into_green
             play_exchange_round
@@ -439,6 +411,41 @@ module Engine
             action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
             expect { act(action) }.to raise_error(GameError)
             expect(share.owner).to eq(wlb)
+          end
+        end
+
+        context 'share limit' do
+          let(:wlb) { game.corporation_by_id('WLB') }
+
+          it 'lets a player buy from the open market beyond 60 percent, but not from the IPO' do
+            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 70)
+            end
+            3.times do
+              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            turn_of(b)
+            buy(b, 'WLB')
+            turn_of(a)
+            buy(a, 'WLB')
+            finish_round
+            operate('WLB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            turn_of(a)
+            sell(a, 'WLB', 10)
+            turn_of(b)
+
+            step = game.round.active_step
+            expect(step.can_buy?(b, wlb.ipo_shares.find(&:buyable).to_bundle)).to be(false)
+            pool_share = game.share_pool.shares_by_corporation[wlb].first
+            allow(game).to receive(:cert_limit).and_return(game.num_certs(b))
+            expect(step.can_buy?(b, pool_share.to_bundle)).to be(false)
+            allow(game).to receive(:cert_limit).and_call_original
+            act(Action::BuyShares.new(b, shares: pool_share, share_price: pool_share.price, percent: pool_share.percent))
+            expect(b.percent_of(wlb)).to eq(70)
           end
         end
 
