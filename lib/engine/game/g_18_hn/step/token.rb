@@ -16,6 +16,8 @@ module Engine
           def available_hex(entity, hex)
             return nil unless @game.hex_operating_rights?(entity, hex)
             return nil if @game.token_blocked_hex?(hex)
+            # 8.4.4: Hanau stays free for the Hanau station until FB is exchanged
+            return nil if hex.id == @game.class::HANAU_HEX && entity.find_token_by_type(:hanau)
 
             super
           end

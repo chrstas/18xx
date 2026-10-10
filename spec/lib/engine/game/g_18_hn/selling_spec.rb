@@ -529,6 +529,28 @@ module Engine
             expect(token_step.available_tokens(fhb).map(&:type)).to all(eq(:normal))
           end
 
+          it 'keeps a normal FHB station out of Hanau until FB is exchanged' do
+            turn_of(c)
+            par(c, 'FHB', 70)
+            3.times do
+              turn_of(c)
+              buy(c, 'FHB')
+            end
+            finish_round
+            operate_with_tiles({ 'FHB' => [['G20', '5', 0]] }, { 'FHB' => [[:depot]] })
+            [['H19', '9', 0], ['I18', '8', 1], ['I16', '58', 4]].each do |lay|
+              finish_round
+              operate_with_tiles('FHB' => [lay])
+            end
+            finish_round
+            tile = game.tiles.find { |t| t.name == '5' }
+            act(Action::LayTile.new(fhb, tile: tile, hex: game.hex_by_id('J15'), rotation: 2))
+
+            expect(game.round.active_step).to be_a(G18HN::Step::Token)
+            expect(game.round.active_step.available_hex(fhb, game.hex_by_id('J15'))).to be_nil
+            expect { act(Action::PlaceToken.new(fhb, city: hanau, slot: 0)) }.to raise_error(GameError, /cannot place token/)
+          end
+
           it 'places the station when FB is exchanged, before FHB is founded' do
             play_into_green
             play_exchange_round('FB' => 'Exchange')
