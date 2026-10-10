@@ -282,6 +282,7 @@ module Engine
           super
           @granted_rights = Hash.new { |h, k| h[k] = Set.new }
           @obligations_met = Set.new
+          @founded_in_brown = Set.new
           # 5.3 / 8.4.4: FHB's second free station waits for Hanau, whose slot stays reserved until then
           fhb = corporation_by_id('FHB')
           fhb.tokens << Engine::Token.new(fhb, type: :hanau)
@@ -440,6 +441,20 @@ module Engine
           @obligations_met.include?(corporation)
         end
 
+        # 7.3: a company founded after brown starts gets its full capital when it floats
+        def after_par(corporation)
+          super
+          @founded_in_brown << corporation if borders_gone?
+        end
+
+        # 7.3: five times par on float, the other five once the obligation is met
+        def float_corporation(corporation)
+          @log << "#{corporation.name} floats"
+          shares = @founded_in_brown.include?(corporation) || obligation_met?(corporation) ? 10 : 5
+          @bank.spend(corporation.par_price.price * shares, corporation)
+          @log << "#{corporation.name} receives #{format_currency(corporation.cash)}"
+        end
+
         # 8.4.3: any build can complete the obligation of any company
         def check_obligations!
           @corporations.each do |corporation|
@@ -447,6 +462,11 @@ module Engine
 
             @obligations_met << corporation
             @log << "#{corporation.name} completes its obligated track route"
+            next if !corporation.floated? || @founded_in_brown.include?(corporation)
+
+            amount = corporation.par_price.price * 5
+            @bank.spend(amount, corporation)
+            @log << "#{corporation.name} receives #{format_currency(amount)}"
           end
         end
 
@@ -551,10 +571,6 @@ module Engine
         def frankfurt_track_blocked?(hex)
           self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
         end
-
-        # TODO: 18HN pays capitalization in two stages, half on float and half when the
-        # track obligation is met (rules 7.3 and 8.4.3); the engine default pays it all
-        # on float. Correct for companies founded after brown starts, too early for the rest.
 
         # reserved shares of unexchanged privates are ignored
         def sold_out?(corporation)

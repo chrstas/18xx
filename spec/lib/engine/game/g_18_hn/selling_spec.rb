@@ -62,29 +62,29 @@ module Engine
         end
 
         def operate(plan = {})
-          play_operating_round(plan, false)
+          play_operating_round(plan, nil)
         end
 
-        def advance_to_buy_train(plan = {}, lays = {})
-          play_operating_round(plan, true, lays)
+        def advance_to_buy_train(buyer, plan = {}, lays = {})
+          play_operating_round(plan, buyer, lays)
         end
 
         # lays: { corporation => [[hex, tile, rotation], ...] }, one entry per operating turn
         def operate_with_tiles(lays, plan = {}, tokens = {})
-          play_operating_round(plan, false, lays, tokens)
+          play_operating_round(plan, nil, lays, tokens)
         end
 
         # tokens: { corporation => hex }, placed in the first token step of that corporation
-        def play_operating_round(plan, stop_at_buy_train, lays = {}, tokens = {})
+        def play_operating_round(plan, buyer, lays = {}, tokens = {})
           plan = plan.transform_values(&:dup)
           lays = lays.transform_values(&:dup)
           tokens = tokens.dup
           round = game.round
           while game.round.equal?(round)
             step = game.round.active_step
-            return if stop_at_buy_train && step.is_a?(Engine::Step::BuyTrain)
-
             entity = game.current_entity
+            return if step.is_a?(Engine::Step::BuyTrain) && entity.id == buyer
+
             actions = step.actions(entity)
             act(if actions.include?('lay_tile') && entity.company?
                   special_tile_action(entity)
@@ -95,11 +95,11 @@ module Engine
                 elsif actions.include?('place_token') && (hex = tokens.delete(entity.id))
                   Action::PlaceToken.new(entity, city: game.hex_by_id(hex).tile.cities.first, slot: 0)
                 elsif actions.include?('run_routes')
-                  Action::RunRoutes.new(entity, routes: [])
+                  Action::RunRoutes.new(entity, routes: planned_routes(entity))
                 elsif actions.include?('dividend')
                   Action::Dividend.new(entity, kind: 'withhold')
                 elsif actions.include?('buy_train') && (order = plan[entity.id]&.shift)
-                  train_action(entity, order)
+                  order.first == :right ? right_action(entity, order.last) : train_action(entity, order)
                 elsif actions.include?('discard_train')
                   Action::DiscardTrain.new(entity, train: entity.trains.min_by(&:price))
                 else
@@ -108,13 +108,43 @@ module Engine
           end
         end
 
+        # routes: { corporation => [hexes per train] }, the most expensive train first
+        let(:routes) { {} }
+
+        def planned_routes(entity)
+          trains = entity.trains.sort_by(&:price).reverse
+          planned = routes.fetch(entity.id, []).zip(trains).select(&:last).map do |hexes, train|
+            Engine::Route.new(game, game.phase, train, connection_hexes: [hexes], routes: [])
+          end
+          planned.each { |route| route.routes = planned }
+        end
+
+        def par_and_buy(player, id, price, buys)
+          turn_of(player)
+          par(player, id, price)
+          buys.times do
+            turn_of(player)
+            buy(player, id)
+          end
+        end
+
+        # order: [:depot] or [seller, price], optionally with the train name, else the cheapest train
         def train_action(entity, order)
-          if order.first == :depot
+          seller, price, name = order
+          if seller == :depot
             train = game.depot.min_depot_train
             Action::BuyTrain.new(entity, train: train, price: train.price)
           else
-            Action::BuyTrain.new(entity, train: game.corporation_by_id(order.first).trains.first, price: order.last)
+            trains = game.corporation_by_id(seller).trains
+            train = name ? trains.find { |candidate| candidate.name == name } : trains.min_by(&:price)
+            Action::BuyTrain.new(entity, train: train, price: price)
           end
+        end
+
+        def right_action(entity, id)
+          step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+          item = step.buyable_items(entity).find { |candidate| candidate.description == game.company_by_id(id).name }
+          Action::SpecialBuy.new(entity, item: item)
         end
 
         def offer(player, id)
@@ -153,7 +183,7 @@ module Engine
         def play_into_green(with_wlb: true)
           stock_round_one(with_wlb: with_wlb)
           finish_round
-          operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 4)
+          operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4)
         end
 
         def exchange_step
@@ -630,19 +660,14 @@ module Engine
             game.round.steps.find { |step| step.is_a?(Engine::Step::Dividend) }
           end
 
-          def par_and_buy(player, id, price, buys)
-            turn_of(player)
-            par(player, id, price)
-            buys.times do
-              turn_of(player)
-              buy(player, id)
-            end
+          # WLB's tiles in the operating round after its float and in the one in which MNB buys the first 5 train
+          let(:wlb_lays) { [[['C14', '5', 4]], []] }
+
+          let(:routes) do
+            { 'SB' => [%w[L11 M10 N11]], 'MNB' => [%w[N11 O10], %w[N11 M10 L11]], 'HLB' => [%w[K8 K6 K4]] }
           end
 
-          # WLB's tiles in its first operating round and in the one in which it buys the first 5 train
-          let(:wlb_lays) { [[], []] }
-
-          # Leaves BE, FB, TB and OB open until WLB buys the first 5 train
+          # Leaves BE, FB, TB and OB open until MNB buys the first 5 train
           def play_into_brown
             { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
               turn_of(player)
@@ -656,12 +681,15 @@ module Engine
             end
             finish_round
 
-            operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3)
-            7.times do
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]], 'HLB' => [['K6', '9', 1]] },
+                               { 'SB' => [[:depot]] * 3, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3 })
+            play_until_operating
+            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 3]] }, { 'SB' => [[:depot]] })
+            12.times do
               play_until_operating
               operate
             end
-            expect([a, b, c].map(&:cash)).to eq([290, 410, 390])
+            expect([a, b, c].map(&:cash)).to eq([380, 620, 540])
             play_until_stock
 
             par_and_buy(b, 'WLB', 70, 3)
@@ -670,11 +698,19 @@ module Engine
             finish_round
             play_exchange_round
             operate_with_tiles({ 'WLB' => wlb_lays.first },
-                               { 'WLB' => [[:depot]], 'FHB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]] * 2 })
+                               {
+                                 'WLB' => [['SB', 1]],
+                                 'FHB' => [['HLB', 1], [:depot]],
+                                 'SB' => [[:depot]],
+                                 'MNB' => [[:depot]],
+                                 'HLB' => [[:depot]] * 2,
+                               })
             play_until_operating
-            operate('FHB' => [[:depot]], 'SB' => [[:depot]] * 2, 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            operate('WLB' => [['SB', 1, '3']], 'SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
             play_until_operating
-            advance_to_buy_train({}, { 'WLB' => wlb_lays.last })
+            operate('SB' => [[:depot]], 'MNB' => [[:depot]])
+            play_until_operating
+            advance_to_buy_train('MNB', { 'FHB' => [['MNB', 1]] }, { 'WLB' => wlb_lays.last })
             act(train_action(game.current_entity, [:depot]))
           end
 
@@ -721,6 +757,15 @@ module Engine
               lay_special_tile(game.company_by_id('OB'))
               expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
             end
+          end
+
+          it 'pays the full capital on float only to a company founded after brown starts' do
+            expect(game.corporation_by_id('WEG').cash).to eq(350)
+
+            operate
+            play_until_stock
+            par_and_buy(b, 'LTB', 70, 3)
+            expect(game.corporation_by_id('LTB').cash).to eq(700)
           end
 
           it 'lets WEG operate only from the next operating round' do
@@ -808,6 +853,17 @@ module Engine
             expect(game.log.map(&:message)).to include('FHB completes its obligated track route')
           end
 
+          it 'pays half the capital on float and the other half with the obligation' do
+            found(c, 'FHB')
+            fhb = game.corporation_by_id('FHB')
+            expect(fhb.cash).to eq(350)
+
+            lay_in_turn('FHB', [['G20', '5', 1], ['F19', '9', 2]])
+            finish_round
+            # plus 350 from the obligation, minus 20 for the water at Bad Hersfeld
+            expect { operate_with_tiles('FHB' => [['E18', '5', 4]]) }.to change(fhb, :cash).by(330)
+          end
+
           it 'completes SB once the three Odenwald hexes are built' do
             found(b, 'SB')
             lay_in_turn('SB', [['L11', '927', 1], ['M12', '9', 2], ['N13', '58', 0]])
@@ -867,16 +923,11 @@ module Engine
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }
 
-          # Plays to MNB's forced train buy in OR 3.1 and returns a's shortfall
+          # Plays to MNB's forced train buy in OR 2, the price is what HLB pays for one of MNB's 2 trains
           def emergency(price)
-            { a => 'MNB', c => 'HLB', b => 'VB' }.each do |player, id|
-              turn_of(player)
-              par(player, id, id == 'MNB' ? 100 : 70)
-              3.times do
-                turn_of(player)
-                buy(player, id)
-              end
-            end
+            par_and_buy(a, 'MNB', 80, 4)
+            par_and_buy(c, 'HLB', 70, 3)
+            par_and_buy(b, 'VB', 70, 3)
             turn_of(c)
             par(c, 'FWN', 70)
             3.times do
@@ -885,15 +936,10 @@ module Engine
             end
             finish_round
 
-            operate('MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 2, 'VB' => [[:depot]] * 2, 'FWN' => [[:depot]] * 4)
-            play_exchange_round
-            finish_round
-            play_exchange_round
-            operate('MNB' => [['HLB', price]], 'HLB' => [[:depot]] * 3, 'VB' => [[:depot]])
-            play_exchange_round
-            # first 4: phase 4 rusts the 2s, MNB is left without a train
-            operate('VB' => [[:depot]])
-            play_exchange_round
+            # MNB spends its capital and hands over all four trains
+            operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
+                    'HLB' => [[:depot], [:depot], ['MNB', price]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
+                    'FWN' => [[:depot], ['MNB', 1], ['MNB', 1]])
 
             turn_of(c)
             par(c, 'LTB', 70)
@@ -904,18 +950,16 @@ module Engine
               buy(a, 'LTB')
             end
             finish_round
-            play_exchange_round
 
-            advance_to_buy_train
+            advance_to_buy_train('MNB')
             step = game.round.active_step
             step.needed_cash(a) - step.available_cash(a)
           end
 
           {
-            599 => [69, [[10, 65], [20, 65]]],
-            596 => [66, [[10, 65], [20, 65]]],
-            595 => [65, [[10, 65]]],
-            589 => [59, [[10, 65]]],
+            1 => [66, [[10, 65], [20, 65]]],
+            2 => [65, [[10, 65]]],
+            8 => [59, [[10, 65]]],
           }.each do |price, (shortfall, bundles)|
             it "offers #{bundles.map(&:first).join(' and ')} % of LTB at a shortfall of #{shortfall}" do
               expect(emergency(price)).to eq(shortfall)
@@ -924,11 +968,12 @@ module Engine
             end
           end
 
-          it 'sells 20 % in one action at a shortfall of 69' do
-            emergency(599)
-            expect(mnb.cash).to eq(161)
-            expect(a.cash).to eq(90)
-            expect(game.round.active_step.needed_cash(a)).to eq(320)
+          it 'sells 20 % in one action at a shortfall of 66' do
+            emergency(1)
+            expect(mnb.trains).to be_empty
+            expect(mnb.cash).to eq(4)
+            expect(a.cash).to eq(80)
+            expect(game.round.active_step.needed_cash(a)).to eq(150)
             expect(ltb.share_price.coordinates).to eq([5, 4])
 
             cash = a.cash
@@ -939,7 +984,7 @@ module Engine
           end
 
           it 'rejects 20 % at a shortfall of 65' do
-            emergency(595)
+            emergency(2)
             shares = a.shares_of(ltb).first(2)
             action = Action::SellShares.new(a, shares: shares, share_price: 65, percent: 20)
             expect { act(action) }.to raise_error(GameError, /Cannot sell shares of LTB/)
