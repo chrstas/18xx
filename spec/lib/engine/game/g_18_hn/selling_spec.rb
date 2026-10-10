@@ -485,8 +485,11 @@ module Engine
 
         context 'special tile on exchange' do
           def special_track_actions
-            step = game.round.steps.find { |candidate| candidate.is_a?(Engine::Step::SpecialTrack) }
-            %w[BE TB OB].map { |id| step.actions(game.company_by_id(id)) }
+            %w[BE TB OB].map { |id| game.round.actions_for(game.company_by_id(id)) & ['lay_tile'] }
+          end
+
+          def private_lays
+            game.companies.reject(&:closed?).select { |company| game.round.actions_for(company).include?('lay_tile') }
           end
 
           def exchange_up_to(company)
@@ -502,6 +505,15 @@ module Engine
             finish_round
             expect(game.round).to be_a(Engine::Round::Operating)
             expect(special_track_actions).to all(be_empty)
+          end
+
+          it 'offers no private a tile lay in a stock round' do
+            expect(private_lays).to be_empty
+
+            play_into_green
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(private_lays).to be_empty
           end
 
           { 'BE' => 'FB', 'TB' => 'OB', 'OB' => nil }.each do |id, following|

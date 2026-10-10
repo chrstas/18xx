@@ -330,7 +330,6 @@ module Engine
         def stock_round
           Engine::Round::Stock.new(self, [
             Engine::Step::DiscardTrain,
-            Engine::Step::SpecialTrack,
             G18HN::Step::BuySellParShares,
           ])
         end
