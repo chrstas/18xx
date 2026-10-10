@@ -338,6 +338,29 @@ module Engine
             expect(%w[BE FB TB OB].map { |id| game.company_by_id(id) }).to all(be_closed)
           end
 
+          it 'lets the owner exchange beyond the 60 percent limit' do
+            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 70)
+            end
+            3.times do
+              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            turn_of(b)
+            buy(b, 'WLB')
+            expect(b.percent_of(wlb)).to eq(60)
+            finish_round
+            operate('WLB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 2)
+
+            expect(game.round).to be_a(G18HN::Round::Exchange)
+            expect(game.round.active_step.actions(game.company_by_id('BE'))).to eq(['choose'])
+            play_exchange_round('BE' => 'Exchange')
+            expect(b.percent_of(wlb)).to eq(70)
+          end
+
           it 'holds an exchange round before every round in the green phase' do
             play_into_green
             play_exchange_round
