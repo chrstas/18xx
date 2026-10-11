@@ -76,6 +76,13 @@ module Engine
           end
         end
 
+        def play_to(corporation, step_class)
+          until game.current_entity == corporation && game.round.active_step.is_a?(step_class)
+            entity = game.current_entity
+            act(default_action(entity, game.round.active_step.actions(entity)))
+          end
+        end
+
         def finish_operating_round
           round = game.round
           while game.round.equal?(round)
@@ -177,6 +184,106 @@ module Engine
               expect(water_border?('J9', 0)).to be(false)
               expect(game.log.map(&:message)).to include('HLB builds the bridge Mainz-Wiesbaden for 60M')
             end
+          end
+        end
+
+        context 'with the rest of the operating turn' do
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'still offers the Mainz tile after a bridge' do
+                found(game.players.first, 'HLB')
+                finish_round
+                play_to_track_step(hlb)
+                build_bridge(hlb, 'Mainz-Wiesbaden')
+
+                tiles = game.round.active_step.upgradeable_tiles(hlb, game.hex_by_id('K8')).map(&:name)
+                expect(tiles).to include('920')
+              end
+
+              it 'lays track over the bridge in the same operating round after a reload' do
+                found(game.players.first, 'HLB')
+                finish_round
+                play_to_track_step(hlb)
+                build_bridge(hlb, 'Mainz-Rüsselsheim')
+
+                loaded = reload
+                loaded_hlb = loaded.corporation_by_id('HLB')
+                tile = loaded.tiles.find { |candidate| candidate.name == '3' }
+                loaded.process_action(Action::LayTile.new(loaded_hlb, tile: tile, hex: loaded.hex_by_id('K10'), rotation: 3))
+                expect(loaded.exception).to be_nil
+                expect(loaded.hex_by_id('K10').tile.exits).to include(1)
+              end
+            end
+          end
+
+          it 'offers Wiesbaden with two bridges a green tile' do
+            found(game.players.first, 'WEG')
+            finish_round
+            play_to_track_step(weg)
+            lay(weg, 'J9', '57', 1)
+            build_bridge(weg, 'Mainz-Wiesbaden')
+            finish_operating_round
+            finish_round
+            play_to_track_step(weg)
+            build_bridge(weg, 'Wiesbaden-Rüsselsheim')
+            expect(game.hex_by_id('J9').tile.exits).to include(0, 5)
+
+            advance_to_phase(game, '3')
+            tiles = game.round.active_step.upgradeable_tiles(weg, game.hex_by_id('J9')).map(&:name)
+            expect(tiles).to include('442')
+          end
+
+          it 'closes the bridge window once the company has run' do
+            found(game.players.first, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Rüsselsheim')
+            lay(hlb, 'K10', '3', 3)
+            finish_operating_round
+            finish_round
+            play_to(hlb, Engine::Step::Route)
+            expect(bridge_items(hlb)).not_to be_empty
+
+            act(Action::RunRoutes.new(hlb, routes: []))
+            expect(bridge_items(hlb)).to be_empty
+            play_to(hlb, Engine::Step::BuyTrain)
+            expect(bridge_items(hlb)).to be_empty
+          end
+
+          it 'closes the bridge window once the company has placed a station' do
+            found(game.players.first, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            lay(hlb, 'K8', '920', 0)
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            lay(hlb, 'K6', '9', 1)
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            lay(hlb, 'K4', '6', 2)
+            expect(bridge_items(hlb)).not_to be_empty
+
+            act(Action::PlaceToken.new(hlb, city: game.hex_by_id('K4').tile.cities.first, slot: 0))
+            expect(bridge_items(hlb)).to be_empty
+          end
+
+          it 'offers no bridge to a company that cannot pay for it' do
+            found(game.players.first, 'HLB')
+            finish_round
+            play_to(hlb, Engine::Step::BuyTrain)
+            4.times do
+              train = game.depot.min_depot_train
+              act(Action::BuyTrain.new(hlb, train: train, price: train.price))
+            end
+            expect(hlb.cash).to be < 60
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            expect(bridge_items(hlb)).to be_empty
           end
         end
 

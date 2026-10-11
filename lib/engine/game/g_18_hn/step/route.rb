@@ -12,6 +12,11 @@ module Engine
 
             super
           end
+
+          def process_run_routes(action)
+            super
+            @game.close_bridge_window(action.entity)
+          end
         end
       end
     end

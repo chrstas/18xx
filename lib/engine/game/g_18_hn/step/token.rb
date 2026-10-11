@@ -18,6 +18,7 @@ module Engine
             raise GameError, "#{action.entity.name} cannot place its Hanau station by hand" if action.token&.type == :hanau
 
             super
+            @game.close_bridge_window(action.entity)
           end
 
           def available_hex(entity, hex)

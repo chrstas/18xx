@@ -638,7 +638,7 @@ module Engine
           return false if special && !frankfurt &&
                           (from.towns.size != to.towns.size || from.cities.size != to.cities.size)
 
-          super
+          without_bridge_paths(from) { super }
         end
 
         def bridge_name(index)
@@ -649,6 +649,7 @@ module Engine
         def buildable_bridges(entity)
           return [] if !@round.operating? || @round.current_operator != entity
           return [] if @bridge_or[entity] == current_or
+          return [] if buying_power(entity) < self.class::BRIDGE_COST
 
           nodes = graph_for_entity(entity).connected_nodes(entity)
           self.class::BRIDGES.each_index.select do |index|
@@ -692,9 +693,14 @@ module Engine
         end
 
         def restore_bridge_paths(hex)
-          built_bridge_edges(hex).each do |edge|
-            add_bridge_path!(hex.tile, edge) unless hex.tile.exits.include?(edge)
-          end
+          missing = built_bridge_edges(hex).reject { |edge| hex.tile.exits.include?(edge) }
+          missing.each { |edge| add_bridge_path!(hex.tile, edge) }
+          clear_graph unless missing.empty?
+        end
+
+        # 8.4: a bridge belongs to track building, so a station or a run closes it for this OR
+        def close_bridge_window(entity)
+          @bridge_or[entity] = current_or
         end
 
         def without_bridge_paths(tile)

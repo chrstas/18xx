@@ -36,6 +36,8 @@ module Engine
 
         # 8.4.2: a built bridge stays when the tile on either side is replaced
         def lay_tile(action, **kwargs)
+          # build the graph while the bridge path is still on the tile, as in legal_tile_rotation?
+          hex_neighbors(action.entity, action.hex)
           @game.remove_bridge_paths!(action.hex.tile)
           super
         ensure
