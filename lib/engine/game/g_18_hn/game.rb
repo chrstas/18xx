@@ -34,7 +34,7 @@ module Engine
 
         RIGHT_COST = 40
 
-        # node walks one obligation search may take before it waits for the next build
+        # node walks an obligation search may take from each start before it waits for the next build
         OBLIGATION_WALK_LIMIT = 20_000
 
         MUST_BUY_TRAIN = :always
@@ -424,7 +424,8 @@ module Engine
           @companies.each do |company|
             next if company.closed? || @round.exchanged_companies.include?(company)
 
-            @round.exchanged_companies << company if abilities(company, :tile_lay, time: 'exchange')
+            # time: 'exchange' also matches when: 'any', so check the timing itself
+            @round.exchanged_companies << company if abilities(company, :tile_lay, time: 'exchange')&.when?('exchange')
           end
           super
         end

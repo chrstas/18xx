@@ -45,8 +45,6 @@ module Engine
           end
 
           def process_pass(action)
-            raise GameError, "#{action.entity.name} must lay its tile" unless optional?(action.entity)
-
             @log << "#{action.entity.owner.name} passes the special tile of #{action.entity.name}"
             @round.exchanged_companies.shift
             action.entity.close!

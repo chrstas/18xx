@@ -740,6 +740,7 @@ module Engine
 
           it 'exchanges the four remaining privates' do
             expect(game.phase.name).to eq('5')
+            expect(game.round.exchanged_companies.map(&:id)).to eq(%w[BE TB OB HB])
             expect(game.round.entities.map(&:id)).to eq(%w[WLB FHB SB MNB HLB])
 
             shares = %w[WLB_8 FHB_8 WEG_8 SB_8].map { |id| game.share_by_id(id) }
