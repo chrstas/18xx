@@ -1275,8 +1275,7 @@ module Engine
             act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
           end
 
-          def weg_route(connection_hexes)
-            train = weg.trains.max_by(&:price)
+          def weg_route(connection_hexes, train = weg.trains.max_by(&:price))
             route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
             route.routes = [route]
             route
@@ -1289,8 +1288,9 @@ module Engine
           end
 
           before do
-            { 'a' => 'SB', 'c' => 'HLB', 'b' => 'MNB', 'd' => 'WEG' }.each do |id, corporation|
-              par_and_buy(game.player_by_id(id), corporation, 70, 3)
+            # WEG is founded last and operates last
+            game.players.first(4).zip(%w[SB HLB MNB WEG]).each do |player, corporation|
+              par_and_buy(player, corporation, 70, 3)
             end
             finish_round
             lay_frankfurt('J11', '921')
@@ -1328,6 +1328,46 @@ module Engine
             expect(owner.cash - cash.last).to eq(40)
           end
 
+          # OR 3 starts with FL; J11 and J13 still carry their yellow tiles
+          def play_to_third_round
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            play_exchange_round
+            finish_round
+            play_exchange_round
+          end
+
+          # three players cannot float four companies at 350 each
+          [4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'counts Frankfurt once with the local line and pays its higher value' do
+                play_to_third_round
+                # J9 pays 20, both yellow Frankfurt stations pay 30
+                expect(weg_route(local_line).revenue).to eq(50)
+
+                lay_frankfurt('J11', '923')
+                expect(weg_route(local_line).revenue).to eq(70)
+              end
+
+              it 'lets a 2 train run through both Frankfurt stations only with the right' do
+                two = weg.trains.find { |train| train.name == '2' }
+                expect { weg_route(local_line, two).revenue }
+                  .to raise_error(GameError, 'WEG needs the Frankfurt transit right to use the local line')
+
+                play_to_third_round
+                expect(weg_route(local_line, two).revenue).to eq(50)
+              end
+
+              it 'counts a route to Frankfurt without the local line as before' do
+                expect(weg_route([%w[J9 J11]]).revenue).to eq(50)
+                play_to_third_round
+                expect(weg_route([%w[J9 J11]]).revenue).to eq(50)
+              end
+            end
+          end
+
           it 'accepts the local line once the Frankfurt right is bought' do
             @weg_hexes = [%w[J9 J11]]
             operate_second_round
@@ -1338,6 +1378,69 @@ module Engine
             @weg_hexes = local_line
             operate
             expect(game.log.map(&:message).grep(/WEG runs a 3 train/)).not_to be_empty
+          end
+        end
+
+        context 'Frankfurt reached twice on broad gauge' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fl) { game.company_by_id('FL') }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def sb_route(connection_hexes)
+            train = sb.trains.max_by(&:price)
+            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
+            route.routes = [route]
+            route
+          end
+
+          def planned_routes(entity)
+            return super if entity != sb || !@sb_hexes
+
+            [sb_route(@sb_hexes)]
+          end
+
+          # SB joins J11 and J13 on broad gauge through K12 and its station at K14, then buys a 3 train
+          def build_detour
+            game.players.cycle.first(3).zip(%w[SB HLB MNB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]] },
+                               { 'SB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 3 })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            lay_frankfurt('J13', '922')
+            operate_with_tiles('SB' => [['L13', '8', 1]])
+            play_exchange_round
+            lay_frankfurt('J13', '924')
+            @sb_hexes = [%w[L11 L13 K14]]
+            operate_with_tiles({ 'SB' => [['K14', '5', 0]] }, {}, { 'SB' => 'K14' })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            operate_with_tiles('SB' => [['K12', '8', 2]])
+            play_exchange_round
+            operate_with_tiles({ 'SB' => [['K14', '444', 0]] }, { 'SB' => [[:depot]] })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'refuses a route through both Frankfurt stations without the local line' do
+                build_detour
+                route = sb_route([%w[J11 K12 K14], %w[K14 J13]])
+                expect(route.paths.map(&:track).uniq).to eq([:broad])
+                expect { route.revenue }.to raise_error(GameError, 'Cannot use group Frankfurt more than once')
+              end
+            end
           end
         end
 

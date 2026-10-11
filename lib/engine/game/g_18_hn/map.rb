@@ -60,40 +60,42 @@ module Engine
           {
             'count' => 1,
             'color' => 'yellow',
-            'code' => 'city=revenue:30;city=revenue:30;city=revenue:30;label=F/W;path=a:1,b:_0;path=a:3,b:_1;path=a:5,b:_2;' \
+            'code' => 'city=revenue:30,groups:Frankfurt;city=revenue:30,groups:Frankfurt;city=revenue:30,groups:Frankfurt;' \
+                      'label=F/W;path=a:1,b:_0;path=a:3,b:_1;path=a:5,b:_2;' \
                       'path=a:4,b:_0,track:narrow;path=a:4,b:_1,track:narrow;path=a:4,b:_2,track:narrow',
           },
           '922' =>
           {
             'count' => 1,
             'color' => 'yellow',
-            'code' => 'city=revenue:30;label=F/E;path=a:1,b:_0,track:narrow;path=a:4,b:_0',
+            'code' => 'city=revenue:30,groups:Frankfurt;label=F/E;path=a:1,b:_0,track:narrow;path=a:4,b:_0',
           },
           '923' =>
           {
             'count' => 1,
             'color' => 'green',
-            'code' => 'city=revenue:50;label=F/W;path=a:1,b:_0;path=a:3,b:_0;path=a:4,b:_0,track:narrow;path=a:5,b:_0',
+            'code' => 'city=revenue:50,groups:Frankfurt;label=F/W;path=a:1,b:_0;path=a:3,b:_0;' \
+                      'path=a:4,b:_0,track:narrow;path=a:5,b:_0',
           },
           '924' =>
           {
             'count' => 1,
             'color' => 'green',
-            'code' => 'city=revenue:50;label=F/E;path=a:1,b:_0,track:narrow;path=a:4,b:_0;path=a:5,b:_0',
+            'code' => 'city=revenue:50,groups:Frankfurt;label=F/E;path=a:1,b:_0,track:narrow;path=a:4,b:_0;path=a:5,b:_0',
           },
           '925' =>
           {
             'count' => 1,
             'color' => 'brown',
-            'code' => 'city=revenue:60;label=F/W;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;' \
+            'code' => 'city=revenue:60,groups:Frankfurt;label=F/W;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;' \
                       'path=a:4,b:_0,track:narrow;path=a:5,b:_0',
           },
           '926' =>
           {
             'count' => 1,
             'color' => 'brown',
-            'code' => 'city=revenue:60;label=F/E;path=a:0,b:_0;path=a:1,b:_0,track:narrow;path=a:3,b:_0;path=a:4,b:_0;' \
-                      'path=a:5,b:_0',
+            'code' => 'city=revenue:60,groups:Frankfurt;label=F/E;path=a:0,b:_0;path=a:1,b:_0,track:narrow;' \
+                      'path=a:3,b:_0;path=a:4,b:_0;path=a:5,b:_0',
           },
           '927' =>
           {
@@ -290,8 +292,8 @@ module Engine
             ['J7'] => 'border=edge:0,type:impassable;border=edge:5,type:impassable;frame=color:lightgreen',
             ['J9'] => 'city=revenue:0;border=edge:0,type:water,cost:60;border=edge:5,type:water,cost:60;' \
                       'frame=color:lightgreen',
-            ['J11'] => 'city=revenue:0;path=a:4,b:_0,track:narrow;label=F/W',
-            ['J13'] => 'city=revenue:0;path=a:1,b:_0,track:narrow;label=F/E',
+            ['J11'] => 'city=revenue:0,groups:Frankfurt;path=a:4,b:_0,track:narrow;label=F/W',
+            ['J13'] => 'city=revenue:0,groups:Frankfurt;path=a:1,b:_0,track:narrow;label=F/E',
             ['J15'] => 'city=revenue:0;upgrade=cost:20,terrain:water;frame=color:plum',
             ['K4'] => 'city=revenue:0;upgrade=cost:20,terrain:water;border=edge:3,type:water,cost:60;frame=color:white',
             ['K6'] => 'border=edge:2,type:impassable;border=edge:3,type:impassable;frame=color:white',

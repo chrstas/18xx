@@ -689,6 +689,17 @@ module Engine
           raise GameError, "#{entity.name} needs operating rights for #{missing.map(&:name).sort.join(', ')}"
         end
 
+        # 8.4.5: with the local line Frankfurt is one station for the train and pays its higher value
+        def visited_stops(route)
+          stops = super
+          return stops if route.paths.none? { |path| path.track == :narrow }
+
+          frankfurt = stops.select { |stop| self.class::FRANKFURT_HEXES.include?(stop.hex.id) }
+          return stops if frankfurt.size < 2
+
+          stops - [frankfurt.reverse.min_by { |stop| stop.route_revenue(route.phase, route.train) }]
+        end
+
         def revenue_for(route, stops)
           stops.sum { |stop| stop.route_revenue(route.phase, route.train) } + connection_bonus(route, stops)
         end
