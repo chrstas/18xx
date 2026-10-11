@@ -15,8 +15,22 @@ module Engine
           super
         end
 
+        # every exit of a city or town tile joins its node, and lay_tile puts the bridge path back on
+        def hex_neighbors(entity, hex)
+          edges = super
+          bridges = @game.built_bridge_edges(hex)
+          return edges if !edges || (edges & bridges).empty?
+
+          nodes = @game.graph_for_entity(entity).connected_nodes(entity)
+          return edges if hex.tile.city_towns.none? { |node| nodes[node] }
+
+          (edges | hex.neighbors.keys) - bridges
+        end
+
         # the new tile need not keep a bridge path, lay_tile puts it back
         def legal_tile_rotation?(entity_or_entities, hex, tile)
+          # build the graph before the bridge path is hidden, or it is cached without the bridge
+          hex_neighbors(Array(entity_or_entities).first, hex)
           @game.without_bridge_paths(hex.tile) { super }
         end
 

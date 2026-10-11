@@ -672,17 +672,28 @@ module Engine
           check_obligations!
         end
 
+        # route paths are rotated copies, so a bridge path is found by its tile and index
+        def bridge_for(path)
+          return unless @bridge_paths.any? { |bridge| bridge.tile == path.tile && bridge.index == path.index }
+
+          self.class::BRIDGES.index { |sides| sides.any? { |id, edge| id == path.hex.id && path.exits.include?(edge) } }
+        end
+
+        def bridge_usable?(index)
+          self.class::BRIDGES[index].all? { |id, _edge| hex_by_id(id).tile.city_towns.first.max_revenue.positive? }
+        end
+
         def bridge_edges(hex)
           self.class::BRIDGES.flat_map { |sides| sides.select { |id, _edge| id == hex.id }.map(&:last) }
         end
 
-        def restore_bridge_paths(hex)
-          @built_bridges.each do |index|
-            self.class::BRIDGES[index].each do |id, edge|
-              next if id != hex.id || hex.tile.exits.include?(edge)
+        def built_bridge_edges(hex)
+          @built_bridges.flat_map { |index| self.class::BRIDGES[index].select { |id, _edge| id == hex.id }.map(&:last) }
+        end
 
-              add_bridge_path!(hex.tile, edge)
-            end
+        def restore_bridge_paths(hex)
+          built_bridge_edges(hex).each do |edge|
+            add_bridge_path!(hex.tile, edge) unless hex.tile.exits.include?(edge)
           end
         end
 
@@ -783,6 +794,12 @@ module Engine
         # 8.4.1: operating rights cover every hex a route runs through, stop or not
         def check_other(route)
           entity = route.corporation
+          # 8.4.5: a bridge carries trains only once both of its ends have a station value
+          route.paths.each do |path|
+            next if !(index = bridge_for(path)) || bridge_usable?(index)
+
+            raise GameError, "The bridge #{bridge_name(index)} needs a station value at both ends"
+          end
           # 8.4.5: the local line between both Frankfurt stations needs the Frankfurt transit right
           if !granted_right?(entity, 'FC') && route.paths.any? { |path| path.track == :narrow }
             raise GameError, "#{entity.name} needs the Frankfurt transit right to use the local line"
