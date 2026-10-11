@@ -107,6 +107,12 @@ module Engine
             expect(game.hex_operating_rights?(wlb, hex)).to be(false)
             expect(game.borders_gone?).to be(false)
 
+            %w[3 4].each do |phase|
+              advance_to_phase(game, phase)
+              expect(game.hex_operating_rights?(wlb, hex)).to be(false), phase
+              expect(game.borders_gone?).to be(false), phase
+            end
+
             advance_to_phase(game, '5')
 
             expect(game.hex_operating_rights?(wlb, hex)).to be(true)

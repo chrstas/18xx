@@ -617,6 +617,31 @@ module Engine
           end
         end
 
+        context 'Taunus hexes built by WEG' do
+          let(:tb) { game.company_by_id('TB') }
+
+          it 'exchanges TB at the end of the operating round in which the last Taunus hex is built' do
+            owner = tb.owner
+            par_and_buy(b, 'WEG', 70, 3)
+            finish_round
+            operate_with_tiles({ 'WEG' => [['J9', '5', 1]] }, { 'WEG' => [[:depot]] })
+            [['I8', '58', 5], ['I6', '9', 1]].each do |lay|
+              finish_round
+              operate_with_tiles('WEG' => [lay])
+            end
+            expect(tb).not_to be_closed
+
+            finish_round
+            operate_with_tiles('WEG' => [['I4', '7', 3]])
+            share = game.share_by_id('WEG_8')
+            expect(game.phase.name).to eq('2')
+            expect(game.log.map(&:message)).to include('Taunusbahn must be exchanged')
+            expect(tb).to be_closed
+            expect(share.owner).to eq(owner)
+            expect(share.buyable).to be(true)
+          end
+        end
+
         context 'Hanau station of FHB' do
           let(:fhb) { game.corporation_by_id('FHB') }
           let(:hanau) { game.hex_by_id('J15').tile.cities.first }
@@ -967,6 +992,41 @@ module Engine
             expect(met).to eq(['SB'])
           end
 
+          it 'pays the full capital on float when others completed the obligation before' do
+            sb = game.corporation_by_id('SB')
+            par_and_buy(a, 'MNB', 70, 3)
+            finish_round
+            # MNB builds all three Odenwald hexes from Mannheim before SB is founded
+            lay_in_turn('MNB', [['N11', '5', 4], ['N13', '3', 1], ['M12', '7', 5], ['O12', '3', 1]])
+            messages = game.log.map(&:message)
+            expect(met).to eq(['SB'])
+            expect(messages).to include('SB completes its obligated track route')
+            expect(messages.grep(/SB receives/)).to be_empty
+            expect(sb).not_to be_floated
+
+            par_and_buy(b, 'SB', 70, 3)
+            expect(sb.cash).to eq(700)
+            expect(game.log.map(&:message)).to include('SB receives 700M')
+          end
+
+          it 'completes SB with the three Odenwald hexes built, connected or not' do
+            par_and_buy(a, 'MNB', 70, 3)
+            par_and_buy(b, 'SB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]], 'SB' => [['L11', '927', 1]] },
+                               { 'MNB' => [[:depot]], 'SB' => [[:depot]] })
+            finish_round
+            operate_with_tiles('MNB' => [['N13', '3', 1]], 'SB' => [['M12', '7', 1]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('MNB' => [['O12', '3', 1]])
+            # M12 joins neither N13 nor the Mannheim side, so no route runs through all three hexes
+            m12 = game.hex_by_id('M12')
+            expect(m12.tile.exits.map { |edge| m12.neighbors[edge].id }).to contain_exactly('M10', 'L11')
+            expect(met).to eq(['SB'])
+          end
+
           it 'needs one route through the stops in printed order' do
             found(a, 'FWN')
             # Kassel and Bad Karlshafen hang on two branches from Fritzlar, a route would pass Fritzlar twice
@@ -997,6 +1057,49 @@ module Engine
               expect(met).to be_empty
               finish_round
               operate_with_tiles('FWN' => [['E18', '57', 2]])
+              expect(met).to eq(['FHB'])
+            end
+
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'checks the obligation after the tile is laid and before the station is placed' do
+                  fhb = game.corporation_by_id('FHB')
+                  operate_with_tiles('FHB' => [['F19', '9', 2]], 'FWN' => [['D17', '58', 3]])
+                  finish_round
+                  log_size = game.log.to_a.size
+
+                  expect { operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' }) }
+                    .to change(fhb, :cash).by(350)
+                  expect(met).to eq(['FHB'])
+                  expect(game.hex_by_id('E18').tile.cities.first.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
+                  messages = game.log.map(&:message).drop(log_size)
+                  completes = messages.index('FHB completes its obligated track route')
+                  token = messages.index { |message| message.start_with?('FWN places a token on E18') }
+                  expect(completes).to be < token
+                end
+              end
+            end
+
+            it 'completes FHB the moment a green upgrade gives Bad Hersfeld a second slot' do
+              operate_with_tiles('FWN' => [['D17', '58', 3]])
+              par_and_buy(b, 'MWB', 70, 3)
+              par_and_buy(a, 'VB', 70, 3)
+              finish_round
+              operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, { 'MWB' => [[:depot]] * 3, 'VB' => [[:depot]] * 3 },
+                                 { 'FWN' => 'E18' })
+              finish_round
+              log_size = game.log.to_a.size
+              # FHB builds its last hex, then buys the last 2 train and the first 3 train; FWN upgrades in green
+              operate_with_tiles({ 'FHB' => [['F19', '9', 2]], 'FWN' => [['E18', '441', 2]] }, { 'FHB' => [[:depot]] * 2 })
+
+              messages = game.log.map(&:message).drop(log_size)
+              upgrade = messages.index('FWN lays tile #441 with rotation 2 on E18 (Bad Hersfeld)')
+              expect(game.phase.name).to eq('3')
+              expect(game.hex_by_id('E18').tile.cities.first.normal_slots).to eq(2)
+              expect(messages.index { |message| message.include?('lays tile #9 with rotation 2 on F19') }).to be < upgrade
+              expect(messages[upgrade + 1]).to eq('FHB completes its obligated track route')
               expect(met).to eq(['FHB'])
             end
 
@@ -1158,6 +1261,83 @@ module Engine
             lay_frankfurt('J11', '923')
             expect(game.hex_by_id('J11').tile.name).to eq('923')
             expect(fl.revenue).to eq(20)
+          end
+        end
+
+        context 'Frankfurt local line' do
+          let(:players) { 4 }
+          let(:weg) { game.corporation_by_id('WEG') }
+          let(:fl) { game.company_by_id('FL') }
+          let(:local_line) { [%w[J9 J11], %w[J11 J13]] }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def weg_route(connection_hexes)
+            train = weg.trains.max_by(&:price)
+            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
+            route.routes = [route]
+            route
+          end
+
+          def planned_routes(entity)
+            return super if entity != weg || !@weg_hexes
+
+            [weg_route(@weg_hexes)]
+          end
+
+          before do
+            { 'a' => 'SB', 'c' => 'HLB', 'b' => 'MNB', 'd' => 'WEG' }.each do |id, corporation|
+              par_and_buy(game.player_by_id(id), corporation, 70, 3)
+            end
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate_with_tiles({ 'WEG' => [['J9', '57', 1]] },
+                               { 'SB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 2, 'MNB' => [[:depot]] * 2, 'WEG' => [[:depot]] })
+            finish_round
+            lay_frankfurt('J13', '922')
+          end
+
+          # OR 2: SB and HLB buy the last 2 trains, WEG runs to Frankfurt, buys the right and the first 3 train
+          def operate_second_round
+            operate('SB' => [[:depot]], 'HLB' => [[:depot]], 'WEG' => [[:right, 'FC'], [:depot]])
+          end
+
+          it 'refuses the local line without the Frankfurt right, but not the route to Frankfurt' do
+            expect { weg_route(local_line).revenue }
+              .to raise_error(GameError, 'WEG needs the Frankfurt transit right to use the local line')
+
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            expect(game.log.map(&:message).grep(/WEG runs/)).not_to be_empty
+          end
+
+          it 'sells the Frankfurt right for 40 to the owner of FL' do
+            owner = fl.owner
+            cash = [weg.cash, owner.cash]
+            revenue = weg_route([%w[J9 J11]]).revenue
+            price = game.depot.upcoming.find { |train| train.name == '3' }.price
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+
+            expect(game.log.map(&:message)).to include("WEG buys the Frankfurt Concession from #{owner.name} for 40M")
+            expect(weg.trains.map(&:name)).to include('3')
+            expect(weg.cash).to eq(cash.first + revenue - 40 - price)
+            expect(owner.cash - cash.last).to eq(40)
+          end
+
+          it 'accepts the local line once the Frankfurt right is bought' do
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            play_exchange_round
+            finish_round
+            play_exchange_round
+
+            @weg_hexes = local_line
+            operate
+            expect(game.log.map(&:message).grep(/WEG runs a 3 train/)).not_to be_empty
           end
         end
 
