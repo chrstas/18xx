@@ -13,6 +13,13 @@ module Engine
             super.reject { |token| token.type == :hanau }
           end
 
+          # 8.4.4: an action naming the Hanau station is refused, the FB exchange places it
+          def process_place_token(action)
+            raise GameError, "#{action.entity.name} cannot place its Hanau station by hand" if action.token&.type == :hanau
+
+            super
+          end
+
           def available_hex(entity, hex)
             return nil unless @game.hex_operating_rights?(entity, hex)
             return nil if @game.token_blocked_hex?(hex)

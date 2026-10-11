@@ -656,6 +656,33 @@ module Engine
             expect(token_step.available_tokens(fhb).map(&:type)).to all(eq(:normal))
           end
 
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'refuses the Hanau station placed by hand outside Hanau' do
+                par_and_buy(game.players.first, 'FHB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'FHB' => [['G20', '5', 1]] }, { 'FHB' => [[:depot]] })
+                [['F19', '9', 2], ['E18', '5', 4]].each do |lay|
+                  finish_round
+                  operate_with_tiles('FHB' => [lay])
+                end
+                finish_round
+                act(Action::Pass.new(game.current_entity)) until game.round.active_step.is_a?(Engine::Step::Token)
+                bad_hersfeld = game.hex_by_id('E18').tile.cities.first
+                expect(game.round.active_step.available_hex(fhb, bad_hersfeld.hex)).to be_truthy
+                cash = fhb.cash
+
+                action = Action::PlaceToken.new(fhb, city: bad_hersfeld, slot: 0, token_type: 'hanau')
+                expect { act(action) }.to raise_error(GameError, 'FHB cannot place its Hanau station by hand')
+                expect(fhb.cash).to eq(cash)
+                expect(fhb.find_token_by_type(:hanau)).not_to be_nil
+                expect(bad_hersfeld.tokens.compact).to be_empty
+              end
+            end
+          end
+
           it 'keeps a normal FHB station out of Hanau until FB is exchanged' do
             turn_of(c)
             par(c, 'FHB', 70)
