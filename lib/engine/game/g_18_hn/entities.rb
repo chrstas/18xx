@@ -31,6 +31,7 @@ module Engine
             desc: 'lay free special tile in Bad Homburg with the first 5-Train.',
             abilities: [
               { type: 'blocks_hexes', owner_type: 'player', hexes: ['I10'] },
+              { type: 'close', on_phase: 'never' },
               {
                 type: 'tile_lay',
                 owner_type: 'player',
@@ -38,7 +39,7 @@ module Engine
                 tiles: %w[939],
                 discount: 40,
                 reachable: false,
-                when: 'any',
+                when: 'exchange',
                 count: 1,
               },
 ],

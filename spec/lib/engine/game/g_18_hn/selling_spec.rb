@@ -191,7 +191,9 @@ module Engine
         end
 
         # A legal special tile per private, laid right after its exchange
-        let(:special_tiles) { { 'BE' => ['D15', '3', 2], 'TB' => ['I4', '7', 2], 'OB' => ['M12', '7', 0] } }
+        let(:special_tiles) do
+          { 'BE' => ['D15', '3', 2], 'TB' => ['I4', '7', 2], 'OB' => ['M12', '7', 0], 'HB' => ['I10', '939', 0] }
+        end
 
         def special_tile_action(company)
           hex_id, tile_name, rotation = special_tiles[company.id]
@@ -516,6 +518,14 @@ module Engine
             expect(private_lays).to be_empty
           end
 
+          it 'offers HB no tile lay before brown' do
+            hb = game.company_by_id('HB')
+            stock_round_one
+            finish_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.round.actions_for(hb)).not_to include('lay_tile')
+          end
+
           { 'BE' => 'FB', 'TB' => 'OB', 'OB' => nil }.each do |id, following|
             it "lets #{id} lay its tile right after the exchange" do
               play_into_green
@@ -751,7 +761,31 @@ module Engine
             end
 
             expect([a, b].map(&:cash)).to eq(cash)
-            expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            expect(game.current_entity).to eq(game.company_by_id('HB'))
+          end
+
+          context 'with BE, TB and OB done' do
+            let(:hb) { game.company_by_id('HB') }
+
+            before { %w[BE TB OB].each { |id| lay_special_tile(game.company_by_id(id)) } }
+
+            it 'lets HB lay the brown Bad Homburg tile for free, then closes it' do
+              owner = hb.owner
+              cash = owner.cash
+              expect(game.round.active_step.actions(hb)).to eq(%w[lay_tile pass])
+              lay_special_tile(hb)
+              expect(game.hex_by_id('I10').tile.name).to eq('939')
+              expect(hb).to be_closed
+              expect(owner.cash).to eq(cash)
+              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            end
+
+            it 'lets HB pass and closes it' do
+              act(Action::Pass.new(hb))
+              expect(game.hex_by_id('I10').tile.color).to eq(:green)
+              expect(hb).to be_closed
+              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            end
           end
 
           context 'with D15 built in the same operating round' do
@@ -767,7 +801,7 @@ module Engine
 
               lay_special_tile(game.company_by_id('TB'))
               lay_special_tile(game.company_by_id('OB'))
-              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+              expect(game.current_entity).to eq(game.company_by_id('HB'))
             end
           end
 

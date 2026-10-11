@@ -6,14 +6,14 @@ module Engine
   module Game
     module G18HN
       module Step
-        # 5.3: BE, TB and OB lay their special tile right after the exchange, before they close
+        # 5.3: BE, TB and OB lay their special tile right after the exchange, HB when brown starts, then they close
         class ExchangeTrack < SpecialTrack
           ACTIONS = %w[lay_tile].freeze
 
           def actions(entity)
             return [] unless entity == pending_company
 
-            ACTIONS
+            optional?(entity) ? ACTIONS + %w[pass] : ACTIONS
           end
 
           def description
@@ -44,10 +44,23 @@ module Engine
             action.entity.close!
           end
 
+          def process_pass(action)
+            raise GameError, "#{action.entity.name} must lay its tile" unless optional?(action.entity)
+
+            @log << "#{action.entity.owner.name} passes the special tile of #{action.entity.name}"
+            @round.exchanged_companies.shift
+            action.entity.close!
+          end
+
           private
 
           def pending_company
             @round.exchanged_companies.first
+          end
+
+          # 5.3: BE, TB and OB must lay their tile, HB may
+          def optional?(company)
+            !@game.abilities(company, :exchange)
           end
         end
       end

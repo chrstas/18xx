@@ -420,6 +420,12 @@ module Engine
               @round.exchanged_companies << company
             end
           end
+          # 5.3: HB may lay its brown tile now and closes afterwards
+          @companies.each do |company|
+            next if company.closed? || @round.exchanged_companies.include?(company)
+
+            @round.exchanged_companies << company if abilities(company, :tile_lay, time: 'exchange')
+          end
           super
         end
 
