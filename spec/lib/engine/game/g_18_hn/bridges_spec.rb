@@ -187,6 +187,113 @@ module Engine
           end
         end
 
+        context 'with the free bridges of BR' do
+          let(:br) { game.company_by_id('BR') }
+
+          def free_items(corporation)
+            bridge_items(corporation).grep(/\(free\)\z/)
+          end
+
+          def paid_items(corporation)
+            bridge_items(corporation).grep_v(/\(free\)\z/)
+          end
+
+          def build_two_free_bridges
+            found(br.owner, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            cash = hlb.cash
+            build_bridge(hlb, 'Mainz-Wiesbaden (free)')
+            expect(hlb.cash).to eq(cash)
+            expect(br).not_to be_closed
+            expect(game.log.map(&:message)).to include('Baugesellschaft Rheinbrücken is flipped')
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Rüsselsheim (free)')
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'builds two free bridges, flips BR after the first and closes it after the second' do
+                build_two_free_bridges
+                expect(br).to be_closed
+                expect(game.log.map(&:message)).to include('Baugesellschaft Rheinbrücken closes')
+
+                finish_operating_round
+                finish_round
+                play_to_track_step(hlb)
+                expect(paid_items(hlb)).not_to be_empty
+                expect(free_items(hlb)).to be_empty
+              end
+            end
+          end
+
+          it 'offers no free bridge when the director does not own BR' do
+            found(game.players.find { |player| player != br.owner }, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            expect(paid_items(hlb)).not_to be_empty
+            expect(free_items(hlb)).to be_empty
+          end
+
+          it 'offers the free bridge, but no paid one, to a company that cannot pay' do
+            found(br.owner, 'HLB')
+            finish_round
+            play_to(hlb, Engine::Step::BuyTrain)
+            4.times do
+              train = game.depot.min_depot_train
+              act(Action::BuyTrain.new(hlb, train: train, price: train.price))
+            end
+            expect(hlb.cash).to be < 60
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+
+            expect(paid_items(hlb)).to be_empty
+            expect(free_items(hlb)).not_to be_empty
+            build_bridge(hlb, 'Mainz-Wiesbaden (free)')
+            expect(water_border?('K8', 3)).to be(false)
+          end
+
+          it 'builds one bridge per turn, free or paid, and closes the window with the run' do
+            found(br.owner, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Rüsselsheim (free)')
+            expect(bridge_items(hlb)).to be_empty
+            lay(hlb, 'K10', '3', 3)
+            finish_operating_round
+            finish_round
+
+            play_to(hlb, Engine::Step::Route)
+            expect(free_items(hlb)).not_to be_empty
+            act(Action::RunRoutes.new(hlb, routes: []))
+            expect(bridge_items(hlb)).to be_empty
+          end
+
+          it 'keeps the counter, BR and the cash when the game is loaded again' do
+            found(br.owner, 'HLB')
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Wiesbaden (free)')
+            loaded = reload
+            loaded_br = loaded.company_by_id('BR')
+            expect(loaded.bridge_ability(loaded_br).count).to eq(1)
+            expect(loaded_br).not_to be_closed
+
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Rüsselsheim (free)')
+            loaded = reload
+            expect(loaded.company_by_id('BR')).to be_closed
+            expect(loaded.corporations.map(&:cash)).to eq(game.corporations.map(&:cash))
+          end
+        end
+
         context 'with the rest of the operating turn' do
           [3, 4, 5].each do |count|
             context "with #{count} players" do

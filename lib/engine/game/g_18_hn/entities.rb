@@ -72,19 +72,11 @@ module Engine
             sym: 'BR',
             value: 40,
             revenue: 10,
-            count: 2,
-            desc: 'can build two free bridges, close after the second bridge.',
+            desc: 'Two free bridges before brown, one per turn of a company its owner directs; closes after the second.',
             meta: { start_packet: true },
             color: nil,
             abilities: [
-              {
-                type: 'tile_lay',
-                owner_type: 'player_or_company',
-                hexes: %w[K4 J5 K8 J9 K10 L9 N9 N11],
-                tiles: %w[9],
-                when: 'player',
-                count: 2,
-              },
+              { type: 'description', description: 'Two free bridges, one per turn of each company its owner directs', count: 2 },
             ],
           },
           {

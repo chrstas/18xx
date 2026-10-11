@@ -649,7 +649,6 @@ module Engine
         def buildable_bridges(entity)
           return [] if !@round.operating? || @round.current_operator != entity
           return [] if @bridge_or[entity] == current_or
-          return [] if buying_power(entity) < self.class::BRIDGE_COST
 
           nodes = graph_for_entity(entity).connected_nodes(entity)
           self.class::BRIDGES.each_index.select do |index|
@@ -658,8 +657,20 @@ module Engine
           end
         end
 
-        def build_bridge(entity, index)
-          entity.spend(self.class::BRIDGE_COST, @bank)
+        # 5.3: the owner of BR may build a bridge for free for each company it directs
+        def free_bridge?(entity)
+          br = company_by_id('BR')
+          return false if !br || br.closed? || !br.owner&.player? || br.owner != entity.owner
+
+          (bridge_ability(br)&.count || 0).positive?
+        end
+
+        def bridge_ability(company)
+          company.all_abilities.find { |ability| ability.type == :description }
+        end
+
+        def build_bridge(entity, index, free: false)
+          entity.spend(self.class::BRIDGE_COST, @bank) unless free
           @built_bridges << index
           @bridge_or[entity] = current_or
           self.class::BRIDGES[index].each do |id, edge|
@@ -669,8 +680,25 @@ module Engine
             tile.borders.reject! { |border| border.edge == edge }
           end
           clear_graph
-          @log << "#{entity.name} builds the bridge #{bridge_name(index)} for #{format_currency(self.class::BRIDGE_COST)}"
+          if free
+            use_free_bridge(entity, index)
+          else
+            @log << "#{entity.name} builds the bridge #{bridge_name(index)} for #{format_currency(self.class::BRIDGE_COST)}"
+          end
           check_obligations!
+        end
+
+        def use_free_bridge(entity, index)
+          br = company_by_id('BR')
+          ability = bridge_ability(br)
+          ability.use!
+          @log << "#{entity.name} builds the bridge #{bridge_name(index)} for free (#{br.name})"
+          if ability.count.positive?
+            @log << "#{br.name} is flipped"
+          else
+            br.close!
+            @log << "#{br.name} closes"
+          end
         end
 
         # route paths are rotated copies, so a bridge path is found by its tile and index
