@@ -1045,6 +1045,47 @@ module Engine
             end
           end
 
+          [3, 4, 5].each do |count|
+            context "with #{count} players and green starting mid-round" do
+              let(:players) { count }
+
+              it 'asks FL only at the start of an operating round' do
+                founders = game.players.first(3)
+                founders.zip(%w[SB HLB MNB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+                finish_round
+                lay_frankfurt('J11', '921')
+                operate('SB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 2, 'MNB' => [[:depot]] * 2)
+                finish_round
+                lay_frankfurt('J13', '922')
+                operate('SB' => [[:depot]] * 2, 'HLB' => [[:depot]])
+                finish_round
+
+                expect(game.phase.name).to eq('2')
+                expect(game.current_entity).to eq(first_operator)
+
+                seen = []
+                allow(game).to receive(:process_action).and_wrap_original do |original, *args, **kwargs|
+                  seen << [game.current_entity, game.round.actions_for(fl)]
+                  original.call(*args, **kwargs)
+                end
+                operate('MNB' => [[:depot]])
+                expect(game.phase.name).to eq('3')
+                expect(seen.map(&:first)).not_to include(fl)
+                expect(seen.map(&:last)).to all(be_empty)
+                expect(fl.revenue).to eq(20)
+                expect(game.hex_by_id('J11').tile.name).to eq('921')
+
+                play_exchange_round
+                finish_round
+                play_exchange_round
+                expect(game.current_entity).to eq(fl)
+                expect(game.round.active_step.actions(fl)).to eq(%w[lay_tile pass])
+                lay_frankfurt('J11', '923')
+                expect(fl.revenue).to eq(30)
+              end
+            end
+          end
+
           context 'in the yellow phase' do
             before do
               stock_round_one

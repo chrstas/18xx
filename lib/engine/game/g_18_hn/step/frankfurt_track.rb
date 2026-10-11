@@ -32,6 +32,12 @@ module Engine
             super.merge(frankfurt_decided: false)
           end
 
+          def setup
+            super
+            # 5.3 / 8.2: FL is asked only at the start of the OR, a later phase change opens nothing
+            @round.frankfurt_decided ||= !pending_company
+          end
+
           def abilities(entity, **kwargs, &block)
             return unless entity == @game.company_by_id('FL')
 
