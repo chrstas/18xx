@@ -701,9 +701,11 @@ module Engine
             tile = game.tiles.find { |t| t.name == '5' }
             act(Action::LayTile.new(fhb, tile: tile, hex: game.hex_by_id('J15'), rotation: 2))
 
-            expect(game.round.active_step).to be_a(G18HN::Step::Token)
-            expect(game.round.active_step.available_hex(fhb, game.hex_by_id('J15'))).to be_nil
-            expect { act(Action::PlaceToken.new(fhb, city: hanau, slot: 0)) }.to raise_error(GameError, /cannot place token/)
+            # Hanau is the only city in reach, so the token step does not open at all
+            token_step = game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
+            expect(game.round.active_step).not_to be_a(G18HN::Step::Token)
+            expect(token_step.available_hex(fhb, game.hex_by_id('J15'))).to be_nil
+            expect { act(Action::PlaceToken.new(fhb, city: hanau, slot: 0)) }.to raise_error(GameError)
           end
 
           it 'places the station when FB is exchanged, before FHB is founded' do
@@ -1548,6 +1550,9 @@ module Engine
                 frankfurt = game.hex_by_id('J11').tile.cities.find { |node| reached?(sb, node) }
                 expect(frankfurt).not_to be_nil
                 expect(token_step.available_hex(sb, frankfurt.hex)).to be_nil
+                # Frankfurt is the only free city in reach, so the round goes on to the run without a pass
+                expect(token_step.actions(sb)).to be_empty
+                expect(game.round.active_step).to be_a(G18HN::Step::Route)
                 expect { act(Action::PlaceToken.new(sb, city: frankfurt, slot: 0)) }.to raise_error(GameError)
               end
 
@@ -1562,6 +1567,9 @@ module Engine
 
                 expect(reached?(ltb, city('G10'))).to be(true)
                 expect(token_step.available_hex(ltb, city('G10').hex)).to be_nil
+                # Wetzlar is the only free city in reach, so the round goes on to the run without a pass
+                expect(token_step.actions(ltb)).to be_empty
+                expect(game.round.active_step).to be_a(G18HN::Step::Route)
                 expect { act(Action::PlaceToken.new(ltb, city: city('G10'), slot: 0)) }.to raise_error(GameError)
               end
 
@@ -1620,13 +1628,21 @@ module Engine
                 end
 
                 it 'places one station per operating round, the first extra one for 40' do
-                  expect(game.round.active_step).to be_a(G18HN::Step::Token)
+                  # Rüdesheim over the bridge with the Nassau concession is a second free city in reach
+                  build_bridge(hlb, 'Rüdesheim-Bingen')
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  concession = step.buyable_items(hlb).find { |item| item.description == 'Nassau Concession' }
+                  act(Action::SpecialBuy.new(hlb, item: concession))
+                  play_until(hlb, Engine::Step::Token)
+                  expect(token_step.available_hex(hlb, city('J5').hex)).to be_truthy
+
                   cash = hlb.cash
                   act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0))
-
                   expect(cash - hlb.cash).to eq(40)
                   expect(token_step.actions(hlb)).to be_empty
-                  expect { act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                  expect(token_step.available_hex(hlb, city('J5').hex)).to be_truthy
+                  expect(city('J5').tokenable?(hlb)).to be(true)
+                  expect { act(Action::PlaceToken.new(hlb, city: city('J5'), slot: 0)) }.to raise_error(GameError)
                 end
 
                 it 'charges 100 for the next station' do
