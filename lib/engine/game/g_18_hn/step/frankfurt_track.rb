@@ -28,16 +28,6 @@ module Engine
             pending_company ? [pending_company] : super
           end
 
-          def round_state
-            super.merge(frankfurt_decided: false)
-          end
-
-          def setup
-            super
-            # 5.3 / 8.2: FL is asked only at the start of the OR, a later phase change opens nothing
-            @round.frankfurt_decided ||= !pending_company
-          end
-
           def abilities(entity, **kwargs, &block)
             return unless entity == @game.company_by_id('FL')
 
@@ -46,22 +36,22 @@ module Engine
 
           def process_lay_tile(action)
             super
-            @round.frankfurt_decided = true
             # 8.2: the raised income is paid in this OR, on top of the old one paid at its start
             owner = action.entity.owner
             @game.bank.spend(FRANKFURT_INCOME, owner)
             @log << "#{owner.name} collects #{@game.format_currency(FRANKFURT_INCOME)} from #{action.entity.name}"
+            @round.start_operating
           end
 
           def process_pass(action)
             @log << "#{action.entity.owner.name} passes the Frankfurt tile of #{action.entity.name}"
-            @round.frankfurt_decided = true
+            @round.start_operating
           end
 
           private
 
           def pending_company
-            return if @round.frankfurt_decided
+            # 8.2: only before the first company operates
 
             fl = @game.company_by_id('FL')
             return if fl.closed?

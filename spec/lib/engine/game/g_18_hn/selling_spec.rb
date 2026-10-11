@@ -1024,6 +1024,11 @@ module Engine
             game.round.entities.first
           end
 
+          def current_or_log
+            messages = game.log.map(&:message)
+            messages.drop(messages.rindex { |message| message.start_with?('-- Operating Round') })
+          end
+
           [3, 4, 5].each do |count|
             context "with #{count} players" do
               let(:players) { count }
@@ -1041,6 +1046,10 @@ module Engine
                 expect(game.current_entity).to eq(fl)
                 expect(game.round.active_step.actions(fl)).to eq(%w[lay_tile pass])
                 expect(game.corporation_by_id('SB')).not_to be_operated
+                expect(current_or_log.grep(/ operates /)).to be_empty
+
+                act(Action::Pass.new(fl))
+                expect(current_or_log.grep(/ operates SB/)).not_to be_empty
               end
             end
           end
@@ -1063,15 +1072,10 @@ module Engine
                 expect(game.phase.name).to eq('2')
                 expect(game.current_entity).to eq(first_operator)
 
-                seen = []
-                allow(game).to receive(:process_action).and_wrap_original do |original, *args, **kwargs|
-                  seen << [game.current_entity, game.round.actions_for(fl)]
-                  original.call(*args, **kwargs)
-                end
+                log_size = game.log.to_a.size
                 operate('MNB' => [[:depot]])
                 expect(game.phase.name).to eq('3')
-                expect(seen.map(&:first)).not_to include(fl)
-                expect(seen.map(&:last)).to all(be_empty)
+                expect(game.log.map(&:message).drop(log_size).grep(/Frankfurt tile|Frankfurter Lokalbahn/)).to be_empty
                 expect(fl.revenue).to eq(20)
                 expect(game.hex_by_id('J11').tile.name).to eq('921')
 
