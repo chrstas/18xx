@@ -739,7 +739,7 @@ module Engine
             operate_with_tiles({ 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]], 'HLB' => [['K6', '9', 1]] },
                                { 'SB' => [[:depot]] * 3, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3 })
             play_until_operating
-            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 3]] }, { 'SB' => [[:depot]] })
+            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 4]] }, { 'SB' => [[:depot]] })
             12.times do
               play_until_operating
               operate

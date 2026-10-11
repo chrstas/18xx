@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 require_relative '../../../step/special_track'
+require_relative 'tracker'
 
 module Engine
   module Game
     module G18HN
       module Step
         class SpecialTrack < Engine::Step::SpecialTrack
+          include G18HN::Tracker
+
           FRANKFURT_INCOME = 10
 
           def process_lay_tile(action)

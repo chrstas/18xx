@@ -74,6 +74,17 @@ module Engine
 
         TOKEN_BLOCKED_HEXES = %w[J11 J13 G10].freeze
 
+        # 8.4.2: the six bridge positions over the Rhine and the Main estuary, each side as [hex, edge]
+        BRIDGES = [
+          [['K8', 3], ['J9', 0]],
+          [['K8', 5], ['L9', 2]],
+          [['K8', 4], ['K10', 1]],
+          [['J9', 5], ['K10', 2]],
+          [['N9', 4], ['N11', 1]],
+          [['J5', 0], ['K4', 3]],
+        ].freeze
+        BRIDGE_COST = 60
+
         NATIONAL_REGION_HEXES = {
           'KAS' => %w[A18 B17 C16 C18 C20 D17 D19 D21 E14 E16 E18 E20 F13 F15 F19 F21 G20 H19 I16 I18 J15],
           'WAL' => %w[B15 C12 C14 D13 D15 E12],
@@ -286,6 +297,9 @@ module Engine
           super
           @granted_rights = Hash.new { |h, k| h[k] = Set.new }
           @obligations_met = Set.new
+          @built_bridges = []
+          @bridge_or = {}
+          @bridge_paths = []
           @founded_in_brown = Set.new
           # 5.3 / 8.4.4: FHB's second free station waits for Hanau, whose slot stays reserved until then
           fhb = corporation_by_id('FHB')
@@ -625,6 +639,97 @@ module Engine
                           (from.towns.size != to.towns.size || from.cities.size != to.cities.size)
 
           super
+        end
+
+        def bridge_name(index)
+          self.class::BRIDGES[index].map { |id, _edge| hex_by_id(id).location_name }.join('-')
+        end
+
+        # 8.4.2: one bridge per OR next to a station the company reaches; the concession is not needed to build it
+        def buildable_bridges(entity)
+          return [] if !@round.operating? || @round.current_operator != entity
+          return [] if @bridge_or[entity] == current_or
+
+          nodes = graph_for_entity(entity).connected_nodes(entity)
+          self.class::BRIDGES.each_index.select do |index|
+            !@built_bridges.include?(index) &&
+              self.class::BRIDGES[index].any? { |id, _edge| hex_by_id(id).tile.city_towns.any? { |node| nodes[node] } }
+          end
+        end
+
+        def build_bridge(entity, index)
+          entity.spend(self.class::BRIDGE_COST, @bank)
+          @built_bridges << index
+          @bridge_or[entity] = current_or
+          self.class::BRIDGES[index].each do |id, edge|
+            tile = hex_by_id(id).tile
+            add_bridge_path!(tile, edge)
+            # the bridge replaces the river border, so a later tile lay pays nothing for it
+            tile.borders.reject! { |border| border.edge == edge }
+          end
+          clear_graph
+          @log << "#{entity.name} builds the bridge #{bridge_name(index)} for #{format_currency(self.class::BRIDGE_COST)}"
+          check_obligations!
+        end
+
+        def bridge_edges(hex)
+          self.class::BRIDGES.flat_map { |sides| sides.select { |id, _edge| id == hex.id }.map(&:last) }
+        end
+
+        def restore_bridge_paths(hex)
+          @built_bridges.each do |index|
+            self.class::BRIDGES[index].each do |id, edge|
+              next if id != hex.id || hex.tile.exits.include?(edge)
+
+              add_bridge_path!(hex.tile, edge)
+            end
+          end
+        end
+
+        def without_bridge_paths(tile)
+          paths = tile.instance_variable_get(:@paths)
+          bridges = paths & @bridge_paths
+          return yield if bridges.empty?
+
+          begin
+            reset_tile_paths!(tile, paths - bridges)
+            yield
+          ensure
+            reset_tile_paths!(tile, paths)
+          end
+        end
+
+        # a tile going back to the supply must not keep the bridge of the hex it left
+        def remove_bridge_paths!(tile)
+          bridges = tile.instance_variable_get(:@paths) & @bridge_paths
+          return if bridges.empty?
+
+          reset_tile_paths!(tile, tile.instance_variable_get(:@paths) - bridges)
+        end
+
+        # the engine has no public way to add a path to a laid tile, so this sets the tile's path caches itself
+        def add_bridge_path!(tile, edge)
+          bridge = Engine::Part::Edge.new((edge - tile.rotation) % 6)
+          path = Engine::Part::Path.make_lanes(tile.city_towns.first, bridge)
+          [bridge, path].each do |part|
+            part.index = tile.parts.size + bridge.num
+            part.tile = tile
+          end
+          @bridge_paths << path
+          reset_tile_paths!(tile, tile.instance_variable_get(:@paths) + [path])
+        end
+
+        def reset_tile_paths!(tile, paths)
+          tile.instance_variable_set(:@paths, paths)
+          tile.instance_variable_set(:@edges, paths.flat_map(&:edges).uniq)
+          tile.instance_variable_set(:@nodes, paths.flat_map(&:nodes).uniq)
+          tile.instance_variable_set(:@stops, paths.flat_map(&:stops).uniq)
+          %i[@_paths @_exits @_exit_count @preferred_city_town_edges].each { |var| tile.instance_variable_set(var, nil) }
+          tile.city_towns.each(&:clear!)
+        end
+
+        def current_or
+          "#{@turn}.#{@round.round_num}"
         end
 
         # in yellow and green phases only the FL private may build Frankfurt
