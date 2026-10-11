@@ -488,8 +488,8 @@ module Engine
           return false unless legs_connected?(stops, corporation, skip_paths)
 
           first, *rest = stops
-          walks = Hash.new(0)
-          first.any? { |node| route_from?(node, rest, corporation, skip_paths, {}, {}, walks) }
+          # one walk limit per start, so a dense network behind one start cannot hide the other
+          first.any? { |node| route_from?(node, rest, corporation, skip_paths, {}, {}, Hash.new(0)) }
         end
 
         # each leg on its own, without passing the other stops; a route needs this, and it is cheap to check
@@ -500,7 +500,7 @@ module Engine
           end
         end
 
-        # loose islands as in Graph::Pruner: ignoring gauge, lanes and reversing only adds track, never removes it
+        # loose connectivity: ignoring gauge, lanes and reversing only adds track, never removes it
         def track_connects?(from, targets, corporation, skip_paths, walls)
           seen = {}
           queue = from.flat_map(&:paths).reject { |path| skip_paths&.key?(path) }
@@ -509,7 +509,7 @@ module Engine
             next if seen[path]
 
             seen[path] = true
-            return true if (path.nodes & targets).any?
+            return true if path.nodes.intersect?(targets)
 
             neighbors = track_neighbors(path, corporation, walls)
             queue.concat(neighbors.reject { |other| seen[other] || skip_paths&.key?(other) })
