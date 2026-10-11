@@ -31,7 +31,7 @@ module Engine
           def abilities(entity, **kwargs, &block)
             return unless entity == @game.company_by_id('FL')
 
-            @game.abilities(entity, :tile_lay, time: 'or_start', strict_time: false, **kwargs, &block)
+            @game.abilities(entity, :tile_lay, time: 'any', **kwargs, &block)
           end
 
           def process_lay_tile(action)
@@ -52,22 +52,10 @@ module Engine
 
           def pending_company
             # 8.2: only before the first company operates
+            return if @round.current_operator
 
             fl = @game.company_by_id('FL')
-            return if fl.closed?
-
-            # not @game.abilities: it asks blocks? of this step again via ability_blocking_step
-            return unless (ability = fl.all_abilities.find { |a| a.type == :tile_lay })
-
-            fl if @game.class::FRANKFURT_HEXES.any? { |id| fits?(ability, @game.hex_by_id(id)) }
-          end
-
-          def fits?(ability, hex)
-            @game.tiles.any? do |tile|
-              ability.tiles.include?(tile.name) &&
-                @game.tile_valid_for_phase?(tile, hex: hex) &&
-                @game.upgrades_to?(hex.tile, tile)
-            end
+            fl if @game.class::FRANKFURT_HEXES.any? { |id| !potential_tiles(fl, @game.hex_by_id(id)).empty? }
           end
         end
       end
