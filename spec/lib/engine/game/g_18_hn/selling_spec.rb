@@ -1471,6 +1471,189 @@ module Engine
           end
         end
 
+        context 'station tokens' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+          let(:sb) { game.corporation_by_id('SB') }
+
+          def token_step
+            game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
+          end
+
+          # nobody runs, a company without a train buys one, everything else passes
+          def play_until(entity, step_class)
+            until game.current_entity == entity && game.round.active_step.is_a?(step_class)
+              current = game.current_entity
+              actions = game.round.active_step.actions(current)
+              act(if actions.include?('run_routes')
+                    Action::RunRoutes.new(current, routes: [])
+                  elsif actions.include?('dividend')
+                    Action::Dividend.new(current, kind: 'withhold')
+                  elsif actions.include?('buy_train') && current.trains.empty?
+                    train_action(current, [:depot])
+                  else
+                    Action::Pass.new(current)
+                  end)
+            end
+          end
+
+          def lay(entity, hex_id, tile_name, rotation)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
+          end
+
+          def build_bridge(entity, name)
+            step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+            item = step.buyable_items(entity).find { |candidate| candidate.description == "Bridge #{name}" }
+            act(Action::SpecialBuy.new(entity, item: item))
+          end
+
+          def city(hex_id)
+            game.hex_by_id(hex_id).tile.cities.first
+          end
+
+          def reached?(entity, node)
+            game.graph_for_entity(entity).connected_nodes(entity).key?(node)
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'keeps the home of an unfounded company free' do
+                par_and_buy(game.players.first, 'SB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'SB' => [['L11', '927', 2]] }, { 'SB' => [[:depot]] })
+                finish_round
+                play_until(sb, Engine::Step::Track)
+                lay(sb, 'K10', '3', 4)
+                build_bridge(sb, 'Mainz-Rüsselsheim')
+
+                # Mainz is reached over the bridge but held for HLB
+                expect(reached?(sb, city('K8'))).to be(true)
+                expect(city('K8').tokenable?(sb)).to be(false)
+                expect(token_step.actions(sb)).to be_empty
+                expect { act(Action::PlaceToken.new(sb, city: city('K8'), slot: 0)) }.to raise_error(GameError)
+              end
+
+              it 'places no station in Frankfurt' do
+                par_and_buy(game.players.first, 'SB', 70, 3)
+                finish_round
+                act(Action::LayTile.new(game.company_by_id('FL'), tile: game.tiles.find { |t| t.name == '921' },
+                                                                  hex: game.hex_by_id('J11'), rotation: 0))
+                operate_with_tiles({ 'SB' => [['L11', '927', 0]] }, { 'SB' => [[:depot]] })
+                finish_round
+                play_until(sb, Engine::Step::Track)
+                lay(sb, 'K12', '8', 0)
+
+                frankfurt = game.hex_by_id('J11').tile.cities.find { |node| reached?(sb, node) }
+                expect(frankfurt).not_to be_nil
+                expect(token_step.available_hex(sb, frankfurt.hex)).to be_nil
+                expect { act(Action::PlaceToken.new(sb, city: frankfurt, slot: 0)) }.to raise_error(GameError)
+              end
+
+              it 'places no station in Wetzlar' do
+                ltb = game.corporation_by_id('LTB')
+                par_and_buy(game.players.first, 'LTB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'LTB' => [['H7', '5', 3]] }, { 'LTB' => [[:depot]] })
+                finish_round
+                play_until(ltb, Engine::Step::Track)
+                lay(ltb, 'H9', '58', 1)
+
+                expect(reached?(ltb, city('G10'))).to be(true)
+                expect(token_step.available_hex(ltb, city('G10').hex)).to be_nil
+                expect { act(Action::PlaceToken.new(ltb, city: city('G10'), slot: 0)) }.to raise_error(GameError)
+              end
+
+              context 'with WEG over the bridge from Rüdesheim to Bingen' do
+                let(:weg) { game.corporation_by_id('WEG') }
+
+                before do
+                  par_and_buy(game.players.first, 'WEG', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'WEG' => [['J9', '5', 1]] }, { 'WEG' => [[:depot]] })
+                  finish_round
+                  operate_with_tiles('WEG' => [['J7', '9', 1]])
+                  finish_round
+                  play_until(weg, Engine::Step::Track)
+                  lay(weg, 'J5', '5', 3)
+                  build_bridge(weg, 'Rüdesheim-Bingen')
+                end
+
+                it 'places no station in Bingen without the Hessen-Darmstadt concession' do
+                  expect(game.operating_rights(weg)).not_to include('DAR')
+                  expect(reached?(weg, city('K4'))).to be(false)
+                  expect(token_step.available_hex(weg, city('K4').hex)).to be_nil
+                  play_until(weg, Engine::Step::Token)
+                  expect { act(Action::PlaceToken.new(weg, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                end
+
+                it 'places a station in Bingen once the concession is bought' do
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  concession = step.buyable_items(weg).find { |item| item.description == 'Hessen-Darmstadt Concession' }
+                  act(Action::SpecialBuy.new(weg, item: concession))
+                  expect(token_step.available_hex(weg, city('K4').hex)).to be_truthy
+
+                  play_until(weg, Engine::Step::Token)
+                  act(Action::PlaceToken.new(weg, city: city('K4'), slot: 0))
+                  expect(city('K4').tokens.compact.map(&:corporation)).to eq([weg])
+                end
+              end
+
+              context 'with HLB at Bingen and SB over the bridge to Mainz' do
+                before do
+                  par_and_buy(game.players[0], 'HLB', 70, 3)
+                  par_and_buy(game.players[1], 'SB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'HLB' => [['K8', '920', 0]], 'SB' => [['L11', '927', 2]] },
+                                     { 'HLB' => [[:depot]], 'SB' => [[:depot]] })
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  lay(hlb, 'K6', '9', 1)
+                  play_until(sb, Engine::Step::Track)
+                  lay(sb, 'K10', '3', 4)
+                  build_bridge(sb, 'Mainz-Rüsselsheim')
+                  operate
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  lay(hlb, 'K4', '6', 2)
+                end
+
+                it 'places one station per operating round, the first extra one for 40' do
+                  expect(game.round.active_step).to be_a(G18HN::Step::Token)
+                  cash = hlb.cash
+                  act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0))
+
+                  expect(cash - hlb.cash).to eq(40)
+                  expect(token_step.actions(hlb)).to be_empty
+                  expect { act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                end
+
+                it 'charges 100 for the next station' do
+                  act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0))
+                  operate
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  expect(token_step.available_tokens(hlb).map(&:price)).to eq([100])
+                end
+
+                it 'lets a full city block the way to the station behind it' do
+                  act(Action::Pass.new(hlb))
+                  play_until(sb, Engine::Step::Track)
+
+                  # Mainz holds only HLB's home station, so SB cannot pass it to Bingen
+                  expect(reached?(sb, city('K8'))).to be(true)
+                  expect(city('K8').tokenable?(sb)).to be(false)
+                  expect(reached?(sb, city('K4'))).to be(false)
+                  expect(token_step.available_hex(sb, city('K4').hex)).to be_nil
+                  expect(reached?(hlb, city('K4'))).to be(true)
+                  expect { act(Action::PlaceToken.new(sb, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                end
+              end
+            end
+          end
+        end
+
         context 'emergency sale' do
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }
