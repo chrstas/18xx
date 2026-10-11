@@ -341,6 +341,7 @@ module Engine
         def operating_round(round_num)
           Engine::Round::Operating.new(self, [
             Engine::Step::Bankrupt,
+            G18HN::Step::FrankfurtTrack,
             G18HN::Step::ExchangeTrack,
             G18HN::Step::SpecialBuy,
             G18HN::Step::SpecialTrack,

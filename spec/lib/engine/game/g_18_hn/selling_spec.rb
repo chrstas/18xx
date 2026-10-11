@@ -86,7 +86,8 @@ module Engine
             return if step.is_a?(Engine::Step::BuyTrain) && entity.id == buyer
 
             actions = step.actions(entity)
-            act(if actions.include?('lay_tile') && entity.company?
+            # FL passes its Frankfurt tile unless a test lays it
+            act(if actions.include?('lay_tile') && entity.company? && entity != game.company_by_id('FL')
                   special_tile_action(entity)
                 elsif actions.include?('lay_tile') && (lay = lays[entity.id]&.shift)
                   hex, tile, rotation = lay
@@ -126,6 +127,11 @@ module Engine
             turn_of(player)
             buy(player, id)
           end
+        end
+
+        def pass_frankfurt
+          fl = game.company_by_id('FL')
+          act(Action::Pass.new(fl)) if game.current_entity == fl
         end
 
         # order: [:depot] or [seller, price], optionally with the train name, else the cheapest train
@@ -309,6 +315,7 @@ module Engine
             it 'counts shares one step below until MNB operates' do
               expect(mnb.share_price.coordinates).to eq([0, 4])
               finish_round
+              pass_frankfurt
               expect(game.current_entity).to eq(mnb)
               expect(game.liquidity(c) - c.cash).to eq(270)
 
@@ -638,6 +645,7 @@ module Engine
               operate_with_tiles('FHB' => [lay])
             end
             finish_round
+            pass_frankfurt
             tile = game.tiles.find { |t| t.name == '5' }
             act(Action::LayTile.new(fhb, tile: tile, hex: game.hex_by_id('J15'), rotation: 2))
 
@@ -1001,6 +1009,110 @@ module Engine
               operate_with_tiles('FHB' => [['F19', '9', 2]])
               expect(met).to be_empty
             end
+          end
+        end
+
+        context 'Frankfurt tile at the start of an operating round' do
+          let(:fl) { game.company_by_id('FL') }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def first_operator
+            game.round.entities.first
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'asks the owner of FL before the first company operates' do
+                first = game.current_entity
+                par(first, 'SB', 70)
+                3.times do
+                  turn_of(first)
+                  buy(first, 'SB')
+                end
+                finish_round
+
+                expect(game.round).to be_a(Engine::Round::Operating)
+                expect(game.current_entity).to eq(fl)
+                expect(game.round.active_step.actions(fl)).to eq(%w[lay_tile pass])
+                expect(game.corporation_by_id('SB')).not_to be_operated
+              end
+            end
+          end
+
+          context 'in the yellow phase' do
+            before do
+              stock_round_one
+              finish_round
+            end
+
+            it 'pays the raised income in the same operating round' do
+              owner = fl.owner
+              cash = owner.cash
+              lay_frankfurt('J11', '921')
+
+              expect(game.hex_by_id('J11').tile.name).to eq('921')
+              expect(fl.revenue).to eq(10)
+              expect(owner.cash - cash).to eq(10)
+            end
+
+            it 'allows one tile per operating round' do
+              lay_frankfurt('J11', '921')
+
+              expect { lay_frankfurt('J13', '922') }.to raise_error(GameError)
+              expect(game.hex_by_id('J13').tile.color).to eq(:white)
+              expect(game.round.actions_for(fl)).not_to include('lay_tile')
+            end
+
+            it 'hands over to the first company when FL passes' do
+              act(Action::Pass.new(fl))
+
+              expect(fl.revenue).to eq(0)
+              expect(game.current_entity).to eq(first_operator)
+              expect(game.round.actions_for(fl)).not_to include('lay_tile')
+            end
+
+            it 'does not ask when no Frankfurt tile fits' do
+              lay_frankfurt('J11', '921')
+              operate('SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+              finish_round
+              lay_frankfurt('J13', '922')
+              operate
+              finish_round
+
+              expect(game.phase.name).to eq('2')
+              expect(game.round).to be_a(Engine::Round::Operating)
+              expect(game.current_entity).to eq(first_operator)
+            end
+
+            it 'keeps FL on turn after a chat message' do
+              act(Action::Message.new(fl.owner, message: 'thinking'))
+
+              expect(game.current_entity).to eq(fl)
+              lay_frankfurt('J11', '921')
+              expect(fl.revenue).to eq(10)
+            end
+          end
+
+          it 'upgrades a Frankfurt tile to green at the start of an operating round' do
+            stock_round_one
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4)
+            play_exchange_round
+            finish_round
+            play_exchange_round
+
+            expect(game.phase.name).to eq('3')
+            expect(game.current_entity).to eq(fl)
+            lay_frankfurt('J11', '923')
+            expect(game.hex_by_id('J11').tile.name).to eq('923')
+            expect(fl.revenue).to eq(20)
           end
         end
 
