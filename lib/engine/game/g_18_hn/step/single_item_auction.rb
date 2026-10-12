@@ -74,7 +74,7 @@ module Engine
 
           def min_bid(company)
             return unless company
-            return company.min_bid unless @bids[company].any?
+            return company.min_bid if @bids[company].empty?
 
             highest_bid(company).price + min_increment
           end
@@ -110,7 +110,7 @@ module Engine
           end
 
           def no_bids(company)
-            # 7.2: an unwanted Homburger Bahn gets 5 cheaper each time until the opener must take it for 0
+            # ch. 6: an unwanted Homburger Bahn gets 5 cheaper each time until the opener must take it for 0
             return unless company == @game.company_by_id('HB')
 
             company.discount += 5
@@ -122,7 +122,7 @@ module Engine
             return if @game.players.empty?
             return restart_auction(company) unless winner
 
-            @companies.any? ? auction_entity_log(@companies.first) : pass!
+            @companies.empty? ? pass! : auction_entity_log(@companies.first)
           end
 
           def restart_auction(company)
