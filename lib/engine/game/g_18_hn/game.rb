@@ -32,6 +32,9 @@ module Engine
 
         HOME_TOKEN_TIMING = :operate
 
+        # ch. 6: every bid is a multiple of 5
+        MUST_BID_INCREMENT_MULTIPLE = true
+
         RIGHT_COST = 40
 
         # node walks an obligation search may take from each start before it waits for the next build
@@ -309,7 +312,7 @@ module Engine
 
         def new_auction_round
           Engine::Round::Auction.new(self, [
-            Engine::Step::SelectionAuction,
+            G18HN::Step::SingleItemAuction,
           ])
         end
 
@@ -338,7 +341,7 @@ module Engine
                 or_set_finished
                 new_exchange_round(Engine::Round::Stock)
               end
-            when init_round.class
+            when Engine::Round::Auction
               init_round_finished
               reorder_players(:least_cash)
               new_stock_round
