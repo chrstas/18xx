@@ -52,9 +52,12 @@ module Engine
 
           def pending_company
             # 8.2: only before the first company operates
-            return if @round.current_operator
+            return if @round.current_operator || @round.privates_acted?
 
             fl = @game.company_by_id('FL')
+            # ch. 6: an unsold FL does not lay in the short OR of the initial auction
+            return unless fl.owner&.player?
+
             fl if @game.class::FRANKFURT_HEXES.any? { |id| !potential_tiles(fl, @game.hex_by_id(id)).empty? }
           end
         end

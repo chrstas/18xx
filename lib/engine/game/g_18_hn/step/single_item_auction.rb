@@ -126,11 +126,19 @@ module Engine
           end
 
           def restart_auction(company)
-            # TODO: 7.3 short operating round before the restart (rulebook ch. 6)
+            return pause_auction(company) unless company == @game.company_by_id('HB')
+
             auction_entity_log(company)
             return unless company.min_bid.zero?
 
             add_bid(Engine::Action::Bid.new(@active_bidders.first, company: company, price: 0))
+          end
+
+          # ch. 6: a short operating round comes first, the next auction round starts the same private again
+          def pause_auction(company)
+            @log << "Nobody opens #{company.name}, the auction pauses for a short operating round"
+            @game.pause_auction!
+            pass!
           end
         end
       end

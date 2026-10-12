@@ -11,6 +11,27 @@ module Engine
           def after_setup
             super unless @steps.any? { |step| step.is_a?(G18HN::Step::FrankfurtTrack) && step.blocks? }
           end
+
+          # ch. 6: the short OR of the initial auction has no company, it ends once FL has acted
+          def start_operating
+            return super unless @game.auction_paused?
+
+            @privates_acted = true
+          end
+
+          def privates_acted?
+            @privates_acted
+          end
+
+          def finished?
+            return !active_step if @game.auction_paused?
+
+            super
+          end
+
+          def after_process(action)
+            super unless @game.auction_paused?
+          end
         end
       end
     end

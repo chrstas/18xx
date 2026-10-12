@@ -310,6 +310,20 @@ module Engine
           hex_by_id(self.class::HANAU_HEX).tile.add_reservation!(fhb, 0)
         end
 
+        # ch. 6: nobody opened a private other than HB, so the privates earn once before the auction goes on
+        def pause_auction!
+          @auction_paused = true
+        end
+
+        def auction_paused?
+          @auction_paused
+        end
+
+        def short_operating_round
+          @log << '-- Short operating round during the initial auction --'
+          G18HN::Round::Operating.new(self, [G18HN::Step::FrankfurtTrack], round_num: @round.round_num)
+        end
+
         def new_auction_round
           Engine::Round::Auction.new(self, [
             G18HN::Step::SingleItemAuction,
@@ -332,7 +346,10 @@ module Engine
                 new_operating_round(@round.round_num)
               end
             when Engine::Round::Operating
-              if @round.round_num < @operating_rounds
+              if auction_paused?
+                @auction_paused = false
+                new_auction_round
+              elsif @round.round_num < @operating_rounds
                 or_round_finished
                 new_exchange_round(Engine::Round::Operating, @round.round_num + 1)
               else
@@ -342,9 +359,13 @@ module Engine
                 new_exchange_round(Engine::Round::Stock)
               end
             when Engine::Round::Auction
-              init_round_finished
-              reorder_players(:least_cash)
-              new_stock_round
+              if auction_paused?
+                short_operating_round
+              else
+                init_round_finished
+                reorder_players(:least_cash)
+                new_stock_round
+              end
             end
         end
 
