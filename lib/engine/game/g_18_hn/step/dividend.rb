@@ -12,6 +12,11 @@ module Engine
             ((holder.num_shares_of(entity, ceil: false) - @round.non_paying_shares[holder][entity]) * per_share).ceil
           end
 
+          # 8.4.5: the dividend of pool shares stays with the bank
+          def corporation_dividends(_entity, _per_share)
+            0
+          end
+
           def round_state
             super.merge(non_paying_shares: Hash.new { |h, k| h[k] = Hash.new(0) })
           end

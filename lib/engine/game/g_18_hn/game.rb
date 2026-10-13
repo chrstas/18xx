@@ -32,6 +32,12 @@ module Engine
 
         HOME_TOKEN_TIMING = :operate
 
+        # 8.4.2: no track may lead into the closed sides of Wetzlar
+        IMPASSABLE_HEX_COLORS = %i[blue gray red brown].freeze
+
+        # 8.4.2: an upgrade needs only a reachable hex, not new connected track
+        TRACK_RESTRICTION = :permissive
+
         # ch. 6: every bid is a multiple of 5
         MUST_BID_INCREMENT_MULTIPLE = true
 

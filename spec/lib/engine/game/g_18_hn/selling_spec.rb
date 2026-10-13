@@ -1670,6 +1670,120 @@ module Engine
           end
         end
 
+        context 'track and dividends' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # nobody runs, a company without a train buys one, everything else passes
+          def play_to(entity, step_class)
+            until game.current_entity == entity && game.round.active_step.is_a?(step_class)
+              current = game.current_entity
+              actions = game.round.active_step.actions(current)
+              act(if actions.include?('run_routes')
+                    Action::RunRoutes.new(current, routes: planned_routes(current))
+                  elsif actions.include?('dividend')
+                    Action::Dividend.new(current, kind: 'withhold')
+                  elsif actions.include?('buy_train') && current.trains.empty?
+                    train_action(current, [:depot])
+                  else
+                    Action::Pass.new(current)
+                  end)
+            end
+          end
+
+          def lay(entity, hex_id, tile_name, rotation)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
+          end
+
+          context 'with ten percent of HLB in the pool' do
+            let(:routes) { { 'HLB' => [%w[K8 K10]] } }
+
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'keeps the dividend of the pool share in the bank' do
+                  founder = game.players.first
+                  par_and_buy(founder, 'HLB', 70, 3)
+                  finish_round
+                  play_to(hlb, Engine::Step::Track)
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  bridge = step.buyable_items(hlb).find { |item| item.description == 'Bridge Mainz-Rüsselsheim' }
+                  act(Action::SpecialBuy.new(hlb, item: bridge))
+                  lay(hlb, 'K10', '3', 3)
+                  operate('HLB' => [[:depot]])
+                  turn_of(founder)
+                  sell(founder, 'HLB', 10)
+                  expect(game.share_pool.percent_of(hlb)).to eq(10)
+                  finish_round
+
+                  play_to(hlb, Engine::Step::Dividend)
+                  cash = [hlb.cash, founder.cash]
+                  act(Action::Dividend.new(hlb, kind: 'payout'))
+
+                  expect(hlb.cash).to eq(cash.first)
+                  expect(founder.cash - cash.last).to eq(8)
+                  payout = game.log.map(&:message).grep(/HLB pays out/).last
+                  expect(payout).to include("8M to #{founder.name}")
+                  expect(payout).not_to include('to HLB')
+                end
+              end
+            end
+          end
+
+          context 'with LTB next to Wetzlar' do
+            let(:ltb) { game.corporation_by_id('LTB') }
+
+            before do
+              par_and_buy(game.players.first, 'LTB', 70, 3)
+              finish_round
+              operate_with_tiles({ 'LTB' => [['H7', '5', 3]] }, { 'LTB' => [[:depot]] })
+              finish_round
+              play_to(ltb, Engine::Step::Track)
+            end
+
+            it 'keeps track out of the closed sides of Wetzlar' do
+              wetzlar = game.hex_by_id('G10')
+              %w[G8 F11 H11].each { |id| expect(game.hex_by_id(id).neighbors.values).not_to include(wetzlar), id }
+              %w[H9 F9 G12].each { |id| expect(game.hex_by_id(id).neighbors.values).to include(wetzlar), id }
+
+              expect { lay(ltb, 'G8', '8', 4) }.to raise_error(GameError)
+            end
+
+            it 'lays the same tile on G8 when it leads elsewhere' do
+              lay(ltb, 'G8', '8', 0)
+              expect(game.hex_by_id('G8').tile.name).to eq('8')
+            end
+          end
+
+          context 'with HLB on a straight track in K6 in green' do
+            before do
+              stock_round_one
+              finish_round
+              operate_with_tiles({ 'HLB' => [['K8', '920', 0]] },
+                                 { 'SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4 })
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles('HLB' => [['K6', '9', 1]])
+              play_exchange_round
+              play_to(hlb, Engine::Step::Track)
+            end
+
+            it 'upgrades a reached hex even if the new track is out of reach' do
+              # the new branch K4-L7 ends at empty hexes, only the old K8-K4 track is reached
+              lay(hlb, 'K6', '23', 1)
+              expect(game.hex_by_id('K6').tile.name).to eq('23')
+            end
+
+            it 'still refuses a hex the company does not reach' do
+              worms = game.hex_by_id('N9')
+              expect(game.round.active_step.available_hex(hlb, worms)).to be_nil
+              expect { lay(hlb, 'N9', '57', 0) }.to raise_error(GameError)
+            end
+          end
+        end
+
         context 'emergency sale' do
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }

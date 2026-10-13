@@ -39,6 +39,14 @@ module Engine
         end
 
         context 'corporations' do
+          it 'shows the regular logo as the simple logo' do
+            game.corporations.each { |corporation| expect(corporation.simple_logo).to eq(corporation.logo), corporation.id }
+          end
+
+          it 'names HLB as in the rulebook' do
+            expect(game.corporation_by_id('HLB').full_name).to eq('Hessische Ludwigseisenbahn')
+          end
+
           it 'needs 50 percent to float' do
             expect(game.corporations.size).to eq(10)
             expect(game.corporations.map(&:percent_to_float)).to all(eq(50))
