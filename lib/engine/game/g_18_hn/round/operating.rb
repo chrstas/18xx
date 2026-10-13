@@ -12,6 +12,10 @@ module Engine
             super unless @steps.any? { |step| step.is_a?(G18HN::Step::FrankfurtTrack) && step.blocks? }
           end
 
+          def name
+            @game.auction_paused? ? 'Short Operating Round' : super
+          end
+
           # ch. 6: the short OR of the initial auction has no company, it ends once FL has acted
           def start_operating
             return super unless @game.auction_paused?

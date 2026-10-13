@@ -6,7 +6,7 @@ module Engine
   module Game
     module G18HN
       module Tracker
-        include Engine::Step::Tracker
+        # no include of Engine::Step::Tracker: the host steps have it, and Opal would insert it a second time
 
         # 8.4.2: no track may lead into the Rhine or the Main estuary
         def hex_neighbor_exists?(entity, hex, edge)

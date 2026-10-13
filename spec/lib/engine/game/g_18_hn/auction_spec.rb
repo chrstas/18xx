@@ -187,6 +187,28 @@ module Engine
                 expect(game.current_entity).to eq(order[3 % count])
               end
 
+              it 'names the short operating round apart from the regular ones' do
+                %w[HB BR FL].each { |id| sell_to_opener(id) }
+                everybody_passes('BE')
+                expect(game.round_description('Operating')).to eq('Short Operating Round (initial auction)')
+                expect(game.round.name).to eq('Short Operating Round')
+
+                pass(company('FL'))
+                game.initial_auction_companies.reject(&:owner).each { |private| sell_to_opener(private.id) }
+                founder = game.current_entity
+                act(Action::Par.new(founder, corporation: game.corporation_by_id('SB'),
+                                             share_price: game.stock_market.par_prices.find { |price| price.price == 70 }))
+                3.times do
+                  pass(game.current_entity) until game.current_entity == founder
+                  share = game.corporation_by_id('SB').ipo_shares.select(&:buyable).min_by(&:percent)
+                  act(Action::BuyShares.new(founder, shares: share, share_price: share.price, percent: share.percent))
+                end
+                pass(game.current_entity) until game.round.is_a?(Engine::Round::Operating)
+
+                expect(game.round_description('Operating')).to start_with('Operating Round 1.1')
+                expect(game.round.name).to eq('Operating Round')
+              end
+
               it 'ends the short operating round when FL passes' do
                 %w[HB BR FL].each { |id| sell_to_opener(id) }
                 everybody_passes('BE')

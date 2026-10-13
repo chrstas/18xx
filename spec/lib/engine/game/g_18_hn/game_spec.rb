@@ -119,6 +119,24 @@ module Engine
             expect(game.borders_gone?).to be(true)
           end
         end
+
+        context 'track steps' do
+          # Opal inserts a module included twice a second time, so the tracker must come only from the host step
+          it 'leaves the engine tracker to the host steps' do
+            expect(G18HN::Tracker.include?(Engine::Step::Tracker)).to be(false)
+
+            [G18HN::Step::FrankfurtTrack, G18HN::Step::ExchangeTrack, G18HN::Step::Track].each do |step|
+              expect(step.ancestors.count(Engine::Step::Tracker)).to eq(1), step.name
+            end
+          end
+
+          it 'keeps the engine special track before the engine tracker' do
+            [G18HN::Step::FrankfurtTrack, G18HN::Step::ExchangeTrack, G18HN::Step::SpecialTrack].each do |step|
+              ancestors = step.ancestors
+              expect(ancestors.index(Engine::Step::SpecialTrack)).to be < ancestors.index(Engine::Step::Tracker), step.name
+            end
+          end
+        end
       end
     end
   end

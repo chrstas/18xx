@@ -324,6 +324,13 @@ module Engine
           G18HN::Round::Operating.new(self, [G18HN::Step::FrankfurtTrack], round_num: @round.round_num)
         end
 
+        # ch. 6: the short OR of the initial auction must not read like a regular OR
+        def round_description(name, round_number = nil)
+          return super if name != self.class::OPERATING_ROUND_NAME || !auction_paused?
+
+          'Short Operating Round (initial auction)'
+        end
+
         def new_auction_round
           Engine::Round::Auction.new(self, [
             G18HN::Step::SingleItemAuction,
