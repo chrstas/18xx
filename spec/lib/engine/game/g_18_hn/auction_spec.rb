@@ -155,6 +155,40 @@ module Engine
               expect(game.players).to eq(order.sort_by { |player| [player.cash, order.index(player)] })
             end
 
+            context 'with nobody founding a company in the first stock round' do
+              before do
+                game.initial_auction_companies.each { |private| sell_to_opener(private.id) }
+                pass(game.current_entity) until game.round.is_a?(Engine::Round::Operating)
+              end
+
+              it 'asks FL at the start of the first operating round' do
+                expect(game.current_entity).to eq(company('FL'))
+                expect(game.round.name).to eq('Operating Round')
+              end
+
+              it 'lets FL lay its tile, then goes on to the next stock round' do
+                owner = company('FL').owner
+                cash = owner.cash
+                lay_frankfurt('J11', '921')
+
+                expect(owner.cash - cash).to eq(10)
+                expect(game.hex_by_id('J11').tile.name).to eq('921')
+                expect(game.round).to be_a(Engine::Round::Stock)
+                expect(game.turn).to eq(2)
+              end
+
+              it 'goes on to the next stock round when FL passes' do
+                owner = company('FL').owner
+                cash = owner.cash
+                pass(company('FL'))
+
+                expect(owner.cash).to eq(cash)
+                expect(game.hex_by_id('J11').tile.color).to eq(:white)
+                expect(game.round).to be_a(Engine::Round::Stock)
+                expect(game.turn).to eq(2)
+              end
+            end
+
             context 'with a private nobody opens' do
               it 'pays the sold privates in a short operating round and goes on with the same private' do
                 sell_to_opener('HB')

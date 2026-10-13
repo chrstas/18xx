@@ -16,9 +16,9 @@ module Engine
             @game.auction_paused? ? 'Short Operating Round' : super
           end
 
-          # ch. 6: the short OR of the initial auction has no company, it ends once FL has acted
+          # 8.2 / ch. 6: an OR without a company only waits for FL and ends once it has acted
           def start_operating
-            return super unless @game.auction_paused?
+            return super unless no_company?
 
             @privates_acted = true
           end
@@ -28,13 +28,23 @@ module Engine
           end
 
           def finished?
-            return !active_step if @game.auction_paused?
+            return !active_step if no_company?
 
             super
           end
 
           def after_process(action)
-            super unless @game.auction_paused?
+            super unless no_company?
+          end
+
+          def skip_steps
+            super unless no_company?
+          end
+
+          private
+
+          def no_company?
+            @entities.empty?
           end
         end
       end
