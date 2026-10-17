@@ -260,7 +260,7 @@ module Engine
             ['B15'] => 'town=revenue:0;frame=color:yellow',
             ['B17'] => 'town=revenue:0;frame=color:plum',
             ['C14'] => 'city=revenue:0;frame=color:yellow',
-            ['D13'] => 'upgrade=cost:20,terrain:water;frame=color:yellow',
+            ['D13'] => 'upgrade=cost:20,terrain:water;border=edge:4,type:impassable;frame=color:yellow',
             ['D15'] => 'town=revenue:0;upgrade=cost:60,terrain:water|mountain;' \
                        'border=edge:0,type:impassable;border=edge:1,type:impassable;frame=color:yellow',
             ['D17'] => 'town=revenue:0;upgrade=cost:20,terrain:water;frame=color:plum',

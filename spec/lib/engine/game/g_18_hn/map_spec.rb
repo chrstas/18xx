@@ -48,6 +48,20 @@ module Engine
           end
         end
 
+        context 'barriers' do
+          it 'closes every impassable edge from both sides' do
+            closed = game.hexes.flat_map do |hex|
+              hex.tile.borders.select { |border| border.type == :impassable }.map do |border|
+                neighbor = hex.all_neighbors[border.edge]
+                expect(hex.neighbors[border.edge]).to be_nil, "#{hex.id} edge #{border.edge}"
+                expect(neighbor.neighbors[(border.edge + 3) % 6]).to be_nil, "#{neighbor.id} towards #{hex.id}"
+                [hex.id, neighbor.id].sort
+              end
+            end
+            expect(closed.uniq.size).to eq(9)
+          end
+        end
+
         context 'transit bonus' do
           it 'matches the printed legend row by row' do
             legend = game.map_legend('black')
