@@ -2053,7 +2053,7 @@ module Engine
           it 'offers the shares that cost the director the presidency' do
             strand_mnb
             expect(mnb.player_share_holders).to eq(a => 40, b => 30)
-            expect(offer(a, 'MNB')).to match_array([[10, 70], [20, 70]])
+            expect(offer(a, 'MNB')).to match_array([[10, 70], [20, 70], [30, 70]])
           end
 
           it 'keeps the director paying until the train is bought, then hands MNB over' do
@@ -2069,6 +2069,25 @@ module Engine
             expect(mnb.owner).to eq(b)
             expect(b.shares_of(mnb).find(&:president)).not_to be_nil
             expect(mnb.player_share_holders).to eq(a => 20, b => 30)
+          end
+
+          it "sells part of the director's certificate and hands it over with the sale" do
+            strand_mnb
+            sell(a, 'MNB', 30)
+            expect(mnb.owner).to eq(a)
+            expect(b.shares_of(mnb).find(&:president)).not_to be_nil
+            expect(mnb.player_share_holders).to eq(a => 10, b => 30)
+            expect(game.share_pool.percent_of(mnb)).to eq(30)
+
+            # 30 % is more than the 3 needs, so only the 3+3 is left
+            cash = b.cash
+            act(train_action(mnb, [:depot, nil, nil, '3+3']))
+            expect(a.cash).to eq(64)
+            expect(b.cash).to eq(cash)
+            expect(mnb.owner).to eq(b)
+            messages = game.log.map(&:message)
+            expect(messages.rindex('b becomes the president of MNB'))
+              .to be > messages.rindex('MNB buys a 3+3 train for 180M from The Depot')
           end
         end
 

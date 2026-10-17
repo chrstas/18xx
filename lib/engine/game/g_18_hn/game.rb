@@ -829,32 +829,46 @@ module Engine
           self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
         end
 
-        # 8.4.7: normal shares of the company buying its train may cost the director his post, but only after the buy
-        # TODO: 8.4.7 also allows selling part of the director's certificate, which needs a swap before the sale
+        # 8.4.7: shares of the company buying its train may cost the director his post, but only after the buy
         def deferred_presidency?(bundle)
-          @round.operating? && bundle.corporation == @round.current_operator && !bundle.presidents_share
+          @round.operating? && bundle.corporation == @round.current_operator
         end
 
         def sell_shares_and_change_price(bundle, allow_president_change: true, swap: nil, movement: nil)
-          allow_president_change &&= !deferred_presidency?(bundle)
-          super
+          return super unless deferred_presidency?(bundle)
+
+          seller = bundle.owner
+          super(bundle, allow_president_change: false, swap: swap, movement: movement)
+          hand_over_presidents_share!(bundle, seller) if bundle.presidents_share
         end
 
-        def deferred_president_change!(corporation)
+        # 8.4.7: the certificate changes hands with the sale, the post only after the buy
+        def hand_over_presidents_share!(bundle, seller)
+          return unless (president = next_president(bundle.corporation))
+
+          @share_pool.change_president(bundle.presidents_share, @share_pool, president)
+          @share_pool.handle_partial(bundle, @share_pool, seller) if bundle.partial?
+        end
+
+        def next_president(corporation)
           previous_president = corporation.owner
           max_shares = corporation.player_share_holders.values.max
           majority_share_holders = corporation.player_share_holders.select { |_, p| p == max_shares }.keys
           return if majority_share_holders.include?(previous_president)
 
-          president = majority_share_holders
+          majority_share_holders
             .select { |p| p.percent_of(corporation) >= corporation.presidents_percent }
             .min_by { |p| @share_pool.distance(previous_president, p) }
-          return unless president
+        end
 
+        def deferred_president_change!(corporation)
+          return unless (president = next_president(corporation))
+
+          previous_president = corporation.owner
           corporation.owner = president
           @log << "#{president.name} becomes the president of #{corporation.name}"
-          presidents_share = previous_president.shares_of(corporation).find(&:president)
-          @share_pool.change_president(presidents_share, previous_president, president)
+          presidents_share = corporation.presidents_share
+          @share_pool.change_president(presidents_share, previous_president, president) if presidents_share.owner != president
         end
 
         # 8.4.7: a bankrupt player always finishes last
