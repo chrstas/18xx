@@ -2086,7 +2086,8 @@ module Engine
             expect(game.game_end_reason).to eq(:bank)
           end
 
-          it 'breaks when the forced exchange at the end of the OR floats a company' do
+          # MNB builds the Odenwald hexes, in OR 4 it is at its train buy right after laying M12
+          def build_odenwald
             par_and_buy(b, 'SB', 70, 2)
             par_and_buy(a, 'MNB', 80, 4)
             finish_round
@@ -2098,22 +2099,49 @@ module Engine
             finish_round
             pass_frankfurt
             advance_to_buy_train('MNB', {}, { 'MNB' => [['M12', '9', 2]] })
-            sb = game.corporation_by_id('SB')
-            expect(sb).not_to be_floated
+            expect(game.corporation_by_id('SB')).not_to be_floated
+          end
+
+          it 'waits for the end of the OR before the forced exchange' do
+            build_odenwald
+            act(Action::Message.new(a, message: 'hi'))
+            expect(game.company_by_id('OB')).not_to be_closed
+            expect(game.corporation_by_id('SB')).not_to be_floated
+          end
+
+          it 'breaks when the forced exchange at the end of the OR floats a company' do
+            build_odenwald
             # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
             game.bank.spend(game.bank.cash - 700, a)
 
             act(Action::Pass.new(mnb))
             expect(game.company_by_id('OB')).to be_closed
-            expect(sb).to be_floated
-            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.corporation_by_id('SB')).to be_floated
             expect(game.bank.cash).to eq(0)
             expect(game.bank).to be_broken
+          end
 
-            turn_of(c)
-            buy(c, 'SB')
-            expect(game.bank.cash).to eq(70)
-            expect(game.bank).to be_broken
+          it 'ends the game after the set when the forced exchange empties the bank' do
+            build_odenwald
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
+          end
+
+          it 'still makes the forced exchange when the bank is already empty' do
+            build_odenwald
+            # shortcut: the bank hands all its cash to a
+            game.bank.spend(game.bank.cash, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
           end
 
           it 'keeps the game going with 1 left in the bank' do

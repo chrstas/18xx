@@ -451,8 +451,12 @@ module Engine
           @log << "#{fhb.name} places its second home station on #{hex.name}"
         end
 
-        # 5.3 / 8.5: BE, TB and OB are exchanged at the end of the OR in which others built all their hexes
         def or_round_finished
+          forced_exchanges!
+        end
+
+        # 5.3 / 8.5: BE, TB and OB are exchanged at the end of the OR in which others built all their hexes
+        def forced_exchanges!
           exchange_order.each do |company|
             next unless special_hexes_built?(company)
 
