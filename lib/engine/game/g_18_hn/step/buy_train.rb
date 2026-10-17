@@ -15,6 +15,13 @@ module Engine
             end
 
             super
+            @game.deferred_president_change!(action.entity) if @corporations_sold.include?(action.entity)
+          end
+
+          def causes_president_swap?(corporation, bundle)
+            return false if @game.deferred_presidency?(bundle)
+
+            super
           end
 
           # 7.2: a corporation that never operated pays one step below, so the next smaller bundle counts at that price

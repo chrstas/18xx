@@ -2024,6 +2024,54 @@ module Engine
           end
         end
 
+        context 'emergency sale of the buying company' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # a directs MNB with 40 %, b holds 30 %; MNB hands its 2 trains away in OR 1 and must buy in OR 2
+          def strand_mnb
+            turn_of(a)
+            par(a, 'MNB', 80)
+            2.times do
+              turn_of(a)
+              buy(a, 'MNB')
+            end
+            3.times do
+              turn_of(b)
+              buy(b, 'MNB')
+            end
+            par_and_buy(c, 'HLB', 70, 3)
+            par_and_buy(b, 'VB', 70, 3)
+            par_and_buy(a, 'FWN', 70, 3)
+            finish_round
+            operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
+                    'HLB' => [[:depot], [:depot], ['MNB', 1]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
+                    'FWN' => [[:depot], ['MNB', 1], ['MNB', 1]])
+            finish_round
+            advance_to_buy_train('MNB')
+          end
+
+          it 'offers the shares that cost the director the presidency' do
+            strand_mnb
+            expect(mnb.player_share_holders).to eq(a => 40, b => 30)
+            expect(offer(a, 'MNB')).to match_array([[10, 70], [20, 70]])
+          end
+
+          it 'keeps the director paying until the train is bought, then hands MNB over' do
+            strand_mnb
+            sell(a, 'MNB', 20)
+            expect(mnb.owner).to eq(a)
+
+            cash = b.cash
+            act(train_action(mnb, [:depot]))
+            expect(mnb.trains.map(&:name)).to eq(['3'])
+            expect(a.cash).to eq(24)
+            expect(b.cash).to eq(cash)
+            expect(mnb.owner).to eq(b)
+            expect(b.shares_of(mnb).find(&:president)).not_to be_nil
+            expect(mnb.player_share_holders).to eq(a => 20, b => 30)
+          end
+        end
+
         context 'bank at zero' do
           let(:mnb) { game.corporation_by_id('MNB') }
 
