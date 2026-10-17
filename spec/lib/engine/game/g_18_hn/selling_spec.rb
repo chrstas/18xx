@@ -1059,7 +1059,7 @@ module Engine
           it 'needs one route through the stops in printed order' do
             found(a, 'FWN')
             # Kassel and Bad Karlshafen hang on two branches from Fritzlar, a route would pass Fritzlar twice
-            lay_in_turn('FWN', [['C18', '927', 0], ['D17', '3', 2], ['C16', '6', 3], ['B17', '4', 0], ['A18', '3', 5]])
+            lay_in_turn('FWN', [['C18', '927', 0], ['D17', '3', 2], ['C16', '8', 3], ['B17', '4', 0], ['A18', '3', 5]])
             expect(met).to be_empty
           end
 

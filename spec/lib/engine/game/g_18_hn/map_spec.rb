@@ -147,6 +147,13 @@ module Engine
             end
           end
 
+          it 'prints C16 as a mountain for 40 without a city' do
+            hex = game.hex_by_id('C16')
+            expect(hex.tile.city_towns).to be_empty
+            expect(hex.tile.upgrades.map(&:cost)).to eq([40])
+            expect(hex.tile.upgrades.flat_map(&:terrains)).to eq([:mountain])
+          end
+
           it 'leaves no white, yellow or green hex without a legal upgrade' do
             # E15: the labels T and O on the Taunus and Odenwald hexes made these dead ends
             open_hexes = game.hexes.select { |hex| later_colors.key?(hex.tile.color) }

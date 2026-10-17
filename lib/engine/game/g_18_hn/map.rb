@@ -239,6 +239,7 @@ module Engine
             ['F19'] => 'upgrade=cost:20,terrain:water;frame=color:plum',
             ['H3'] => 'upgrade=cost:20,terrain:water;frame=color:lightgreen',
             ['C12'] => 'upgrade=cost:40,terrain:mountain;frame=color:yellow',
+            ['C16'] => 'upgrade=cost:40,terrain:mountain;frame=color:plum',
             ['D19'] => 'upgrade=cost:40,terrain:mountain;frame=color:plum',
             ['E20'] => 'upgrade=cost:40,terrain:mountain;frame=color:plum',
             ['F5'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
@@ -259,7 +260,6 @@ module Engine
             ['B15'] => 'town=revenue:0;frame=color:yellow',
             ['B17'] => 'town=revenue:0;frame=color:plum',
             ['C14'] => 'city=revenue:0;frame=color:yellow',
-            ['C16'] => 'city=revenue:0;frame=color:plum',
             ['D13'] => 'upgrade=cost:20,terrain:water;frame=color:yellow',
             ['D15'] => 'town=revenue:0;upgrade=cost:60,terrain:water|mountain;' \
                        'border=edge:0,type:impassable;border=edge:1,type:impassable;frame=color:yellow',
