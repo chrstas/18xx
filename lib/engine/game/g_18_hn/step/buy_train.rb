@@ -7,7 +7,7 @@ module Engine
     module G18HN
       module Step
         class BuyTrain < Engine::Step::BuyTrain
-          # 10.2: a traded train keeps its normal or plus type
+          # 8.4.6: a traded train keeps its normal or plus type
           def process_buy_train(action)
             train = action.train
             if train.owned_by_corporation? && action.variant && action.variant != train.name

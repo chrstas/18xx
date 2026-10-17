@@ -1867,9 +1867,9 @@ module Engine
           end
 
           {
-            1 => [66, [[10, 65], [20, 65]]],
-            2 => [65, [[10, 65]]],
-            8 => [59, [[10, 65]]],
+            31 => [66, [[10, 65], [20, 65]]],
+            32 => [65, [[10, 65]]],
+            38 => [59, [[10, 65]]],
           }.each do |price, (shortfall, bundles)|
             it "offers #{bundles.map(&:first).join(' and ')} % of LTB at a shortfall of #{shortfall}" do
               expect(emergency(price)).to eq(shortfall)
@@ -1879,11 +1879,11 @@ module Engine
           end
 
           it 'sells 20 % in one action at a shortfall of 66' do
-            emergency(1)
+            emergency(31)
             expect(mnb.trains).to be_empty
-            expect(mnb.cash).to eq(4)
+            expect(mnb.cash).to eq(34)
             expect(a.cash).to eq(80)
-            expect(game.round.active_step.needed_cash(a)).to eq(150)
+            expect(game.round.active_step.needed_cash(a)).to eq(180)
             expect(ltb.share_price.coordinates).to eq([5, 4])
 
             cash = a.cash
@@ -1893,8 +1893,32 @@ module Engine
             expect(ltb.share_price.price).to eq(65)
           end
 
+          it 'sells 20 % at a shortfall of 96 to afford the 3+3' do
+            expect(emergency(1)).to eq(96)
+            cash = a.cash
+            sell(a, 'LTB', 20)
+            expect(a.cash - cash).to eq(130)
+          end
+
+          it 'lets the forced buyer choose the plus variant from the bank' do
+            emergency(1)
+            sell(a, 'LTB', 20)
+            train = game.depot.min_depot_train
+            plus = train.variants.keys.find { |name| name.include?('+') }
+            act(Action::BuyTrain.new(mnb, train: train, price: train.variants[plus][:price], variant: plus))
+            expect(mnb.trains.map(&:name)).to eq([plus])
+          end
+
+          it 'lets the forced buyer pay another corporation more than face value' do
+            emergency(1)
+            hlb = game.corporation_by_id('HLB')
+            train = hlb.trains.find { |candidate| candidate.name == '2' }
+            act(Action::BuyTrain.new(mnb, train: train, price: 84))
+            expect(train.owner).to eq(mnb)
+          end
+
           it 'rejects 20 % at a shortfall of 65' do
-            emergency(2)
+            emergency(32)
             shares = a.shares_of(ltb).first(2)
             action = Action::SellShares.new(a, shares: shares, share_price: 65, percent: 20)
             expect { act(action) }.to raise_error(GameError, /Cannot sell shares of LTB/)

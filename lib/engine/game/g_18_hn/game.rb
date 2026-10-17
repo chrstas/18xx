@@ -48,6 +48,10 @@ module Engine
 
         MUST_BUY_TRAIN = :always
 
+        # 8.4.7: free choice of train and negotiated price in an emergency buy
+        EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST = false
+        EBUY_FROM_OTHERS = :always
+
         CORPORATION_CLASS = G18HN::Corporation
 
         CORPORATIONS_OPERATING_RIGHTS = {
