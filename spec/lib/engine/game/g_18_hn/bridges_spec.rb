@@ -91,22 +91,12 @@ module Engine
           end
         end
 
-        def lay(corporation, hex_id, tile_name, rotation)
-          tile = game.tiles.find { |t| t.name == tile_name }
-          act(Action::LayTile.new(corporation, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
-        end
-
         def special_buy_step
           game.round.steps.find { |step| step.is_a?(G18HN::Step::SpecialBuy) }
         end
 
         def bridge_items(corporation)
           special_buy_step.buyable_items(corporation).map(&:description).grep(/\ABridge /)
-        end
-
-        def build_bridge(corporation, name)
-          item = special_buy_step.buyable_items(corporation).find { |candidate| candidate.description == "Bridge #{name}" }
-          act(Action::SpecialBuy.new(corporation, item: item))
         end
 
         def reload
@@ -512,9 +502,7 @@ module Engine
           end
 
           def hlb_route(connection_hexes)
-            route = Engine::Route.new(game, game.phase, hlb.trains.first, connection_hexes: connection_hexes, routes: [])
-            route.routes = [route]
-            route
+            single_route(hlb.trains.first, connection_hexes)
           end
 
           [3, 4, 5].each do |count|

@@ -628,7 +628,7 @@ module Engine
         def operating_rights(entity)
           rights = Array(self.class::CORPORATIONS_OPERATING_RIGHTS[entity.id])
           rights += @granted_rights[entity.id].filter_map { |id| self.class::CONCESSION_REGIONS[id] }
-          (rights + ['ALL']).uniq
+          rights | ['ALL']
         end
 
         # 8.4.1: from the brown phase on the borders are gone and concessions are meaningless
@@ -966,17 +966,17 @@ module Engine
         end
 
         def revenue_for(route, stops)
-          stops.sum { |stop| stop.route_revenue(route.phase, route.train) } + connection_bonus(route, stops)
+          super + connection_bonus(route)
         end
 
         def revenue_str(route)
           str = super
-          bonus = connection_bonus(route, route.stops)
+          bonus = connection_bonus(route)
           str += " + Transit(#{bonus})" if bonus.positive?
           str
         end
 
-        def connection_bonus(route, _stops)
+        def connection_bonus(route)
           regions = route.visited_stops.filter_map { |stop| stop.tile.location_name }
             .uniq.select { |name| self.class::TRANSIT_REGIONS.key?(name) }
           return 0 if regions.size < 2

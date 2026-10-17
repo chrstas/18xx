@@ -243,15 +243,8 @@ module Engine
           end
         end
 
-        def lay(entity, hex_id, tile_name, rotation)
-          tile = game.tiles.find { |t| t.name == tile_name }
-          act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
-        end
-
-        def build_bridge(entity, name)
-          step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
-          item = step.buyable_items(entity).find { |candidate| candidate.description == "Bridge #{name}" }
-          act(Action::SpecialBuy.new(entity, item: item))
+        def token_step
+          game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
         end
 
         def city(hex_id)
@@ -685,7 +678,6 @@ module Engine
 
             stock_round_one
             finish_round
-            token_step = game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
             expect(token_step.available_tokens(fhb).map(&:type)).to all(eq(:normal))
           end
 
@@ -735,7 +727,6 @@ module Engine
             act(Action::LayTile.new(fhb, tile: tile, hex: game.hex_by_id('J15'), rotation: 2))
 
             # Hanau is the only city in reach, so the token step does not open at all
-            token_step = game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
             expect(game.round.active_step).not_to be_a(G18HN::Step::Token)
             expect(token_step.available_hex(fhb, game.hex_by_id('J15'))).to be_nil
             expect { act(Action::PlaceToken.new(fhb, city: hanau, slot: 0)) }.to raise_error(GameError)
@@ -1338,9 +1329,7 @@ module Engine
           end
 
           def weg_route(connection_hexes, train = weg.trains.max_by(&:price))
-            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
-            route.routes = [route]
-            route
+            single_route(train, connection_hexes)
           end
 
           def planned_routes(entity)
@@ -1453,10 +1442,7 @@ module Engine
           end
 
           def sb_route(connection_hexes)
-            train = sb.trains.max_by(&:price)
-            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
-            route.routes = [route]
-            route
+            single_route(sb.trains.max_by(&:price), connection_hexes)
           end
 
           def planned_routes(entity)
@@ -1509,10 +1495,6 @@ module Engine
         context 'station tokens' do
           let(:hlb) { game.corporation_by_id('HLB') }
           let(:sb) { game.corporation_by_id('SB') }
-
-          def token_step
-            game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
-          end
 
           def reached?(entity, node)
             game.graph_for_entity(entity).connected_nodes(entity).key?(node)
@@ -1868,9 +1850,7 @@ module Engine
           let(:gruenberg) { game.hex_by_id('G14') }
 
           def vb_route
-            route = Engine::Route.new(game, game.phase, vb.trains.first, connection_hexes: [%w[F17 F15 G14]], routes: [])
-            route.routes = [route]
-            route
+            single_route(vb.trains.first, [%w[F17 F15 G14]])
           end
 
           # MWB in Marburg faces Grünberg, VB in Alsfeld faces F15 in Hessen-Kassel
@@ -1929,10 +1909,7 @@ module Engine
           let(:sb) { game.corporation_by_id('SB') }
 
           def hlb_route(train_name, connection_hexes)
-            train = hlb.trains.find { |candidate| candidate.name == train_name }
-            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
-            route.routes = [route]
-            route
+            single_route(hlb.trains.find { |candidate| candidate.name == train_name }, connection_hexes)
           end
 
           def run(route)
@@ -1973,11 +1950,15 @@ module Engine
           context 'with HLB from Rheinland over Bingen and Alzey to Pfalz' do
             let(:route_hexes) { [%w[J3 K4], %w[K4 L5 M6], %w[M6 N5]] }
 
-            # SB and MNB buy eight 2 trains, HLB the last one and the first 3 train as 3+3, so green starts
+            # SB and MNB buy eight 2 trains, HLB the last one as 2+2 and the first 3 train as 3+3, so green starts
             before do
               game.players.cycle.first(3).zip(%w[SB MNB HLB]).each { |player, id| par_and_buy(player, id, 70, 3) }
               finish_round
-              trains = { 'SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot], [:depot, nil, nil, '3+3']] }
+              trains = {
+                'SB' => [[:depot]] * 4,
+                'MNB' => [[:depot]] * 4,
+                'HLB' => [[:depot, nil, nil, '2+2'], [:depot, nil, nil, '3+3']],
+              }
               operate_with_tiles({ 'HLB' => [['K6', '9', 1]] }, trains)
               play_exchange_round
               finish_round
@@ -1995,6 +1976,11 @@ module Engine
               play_until(hlb, Engine::Step::Route)
             end
 
+            it 'counts an off-board area as a city for a plus train' do
+              expect { hlb_route('2+2', [%w[J3 K4], %w[K4 K6 K8]]).revenue }
+                .to raise_error(GameError, 'Route has too many stops')
+            end
+
             it 'adds the transit bonus of Rheinland and Pfalz' do
               route = hlb_route('3+3', route_hexes)
               # J3 50, K4 30, M6 10, N5 30; Rheinland gives 10 to the south, Pfalz 20 to the west
@@ -2009,10 +1995,6 @@ module Engine
 
         context 'home station in the first operating round' do
           let(:mnb) { game.corporation_by_id('MNB') }
-
-          def token_step
-            game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
-          end
 
           # Worms is reached over the bridge, the yellow tile is laid before the token step
           def reach_worms
@@ -2041,6 +2023,13 @@ module Engine
             expect(token_step.actions(mnb)).to include('place_token')
           end
 
+          it 'clears a graph computed before the home station is placed' do
+            expect(game.graph_for_entity(mnb).connected_nodes(mnb)).to be_empty
+
+            open_first_round
+            expect(game.graph_for_entity(mnb).connected_nodes(mnb)).to include(city('N11'))
+          end
+
           it 'places a second station in the same round for 40' do
             open_first_round
             reach_worms
@@ -2055,8 +2044,9 @@ module Engine
 
         context 'certificate limit' do
           it 'counts privates and shares but not concessions' do
-            expect([a, b, c].map { |player| player.companies.map(&:id) })
-              .to eq([%w[FL FC TB NC], %w[HB BE WC OB HDC], %w[BR FB HKC]])
+            expect(a.companies.map(&:id)).to match_array(%w[FL FC TB NC])
+            expect(b.companies.map(&:id)).to match_array(%w[HB BE WC OB HDC])
+            expect(c.companies.map(&:id)).to match_array(%w[BR FB HKC])
             expect([a, b, c].map { |player| game.num_certs(player) }).to eq([2, 3, 2])
             turn_of(b)
             par(b, 'SB', 70)
