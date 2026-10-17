@@ -18,6 +18,7 @@ module Engine
 
         CURRENCY_FORMAT_STR = '%sM'
 
+        BANK_CASH = 12_000
         STARTING_CASH = { 3 => 800, 4 => 600, 5 => 500 }.freeze
         # 9. Varianten: the optional eighth private adds 10M to every player
         SEIDLER_EXTRA_CASH = 10
