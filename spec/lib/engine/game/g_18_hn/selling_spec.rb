@@ -2028,7 +2028,8 @@ module Engine
           let(:mnb) { game.corporation_by_id('MNB') }
 
           # a directs MNB with 40 %, b holds 30 %; MNB hands its 2 trains away in OR 1 and must buy in OR 2
-          def strand_mnb
+          # kept: how many of its 2 trains MNB still owns in OR 2
+          def strand_mnb(kept: 0)
             turn_of(a)
             par(a, 'MNB', 80)
             2.times do
@@ -2045,9 +2046,16 @@ module Engine
             finish_round
             operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
                     'HLB' => [[:depot], [:depot], ['MNB', 1]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
-                    'FWN' => [[:depot], ['MNB', 1], ['MNB', 1]])
+                    'FWN' => [[:depot]] + ([['MNB', 1]] * (2 - kept)))
             finish_round
             advance_to_buy_train('MNB')
+          end
+
+          it 'refuses a sale while the company still has a train' do
+            strand_mnb(kept: 1)
+            expect(mnb.trains.map(&:name)).to eq(['2'])
+            expect(game.round.active_step.actions(a)).to be_empty
+            expect { sell(a, 'MNB', 20) }.to raise_error(GameError, /cannot process action sell_shares/)
           end
 
           it 'offers the shares that cost the director the presidency' do

@@ -18,6 +18,11 @@ module Engine
             @game.deferred_president_change!(action.entity) if @corporations_sold.include?(action.entity)
           end
 
+          # 8.4.7: a director sells shares in the train step only for a forced buy
+          def can_ebuy_sell_shares?(entity)
+            must_buy_train?(entity) && super
+          end
+
           def causes_president_swap?(corporation, bundle)
             return false if @game.deferred_presidency?(bundle)
 
