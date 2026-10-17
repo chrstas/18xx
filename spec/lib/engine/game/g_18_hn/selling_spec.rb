@@ -135,16 +135,17 @@ module Engine
         end
 
         # order: [:depot] or [seller, price], optionally with the train name, else the cheapest train
+        # an optional fourth entry names the variant to buy
         def train_action(entity, order)
-          seller, price, name = order
+          seller, price, name, variant = order
           if seller == :depot
             train = game.depot.min_depot_train
-            Action::BuyTrain.new(entity, train: train, price: train.price)
+            price = variant ? train.variants[variant][:price] : train.price
           else
             trains = game.corporation_by_id(seller).trains
             train = name ? trains.find { |candidate| candidate.name == name } : trains.min_by(&:price)
-            Action::BuyTrain.new(entity, train: train, price: price)
           end
+          Action::BuyTrain.new(entity, train: train, price: price, variant: variant)
         end
 
         def right_action(entity, id)
@@ -1781,6 +1782,50 @@ module Engine
               expect(game.round.active_step.available_hex(hlb, worms)).to be_nil
               expect { lay(hlb, 'N9', '57', 0) }.to raise_error(GameError)
             end
+          end
+        end
+
+        context 'train trade between corporations' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # SB buys its first 2 from the bank as the given variant, HLB a normal 2; in OR 2 HLB is at its train buy
+          def trade(variant)
+            stock_round_one
+            finish_round
+            operate('SB' => [[:depot, nil, nil, variant]], 'HLB' => [[:depot]], 'MNB' => [[:depot]])
+            finish_round
+            advance_to_buy_train('HLB')
+            expect(game.current_entity).to eq(hlb)
+            sb.trains.first
+          end
+
+          it 'refuses a normal 2 of another corporation as 2+2' do
+            train = trade('2')
+            expect(train.name).to eq('2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2+2')) }
+              .to raise_error(GameError, /Not a buyable train/)
+          end
+
+          it 'refuses a 2+2 of another corporation as a normal 2' do
+            train = trade('2+2')
+            expect(train.name).to eq('2+2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2')) }
+              .to raise_error(GameError, /Not a buyable train/)
+          end
+
+          it 'hands a 2+2 over as a 2+2' do
+            train = trade('2+2')
+            act(Action::BuyTrain.new(hlb, train: train, price: 1))
+            expect(train.owner).to eq(hlb)
+            expect(train.name).to eq('2+2')
+          end
+
+          it 'hands a 2+2 over when it is bought as a 2+2' do
+            train = trade('2+2')
+            act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2+2'))
+            expect(train.owner).to eq(hlb)
+            expect(train.name).to eq('2+2')
           end
         end
 
