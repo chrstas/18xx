@@ -194,7 +194,7 @@ module Engine
           'I8' => 'Idstein',
           'I10' => 'Bad Homburg',
           'I12' => 'Friedberg',
-          'I16' => 'Gellnhausen',
+          'I16' => 'Gelnhausen',
           'J5' => 'Rüdesheim',
           'J9' => 'Wiesbaden',
           'J11' => 'Frankfurt/Main West',
