@@ -1829,6 +1829,39 @@ module Engine
           end
         end
 
+        context 'forced buy from another corporation' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # SB buys a 2 from the bank, then HLB is at its first train buy in OR 1
+          def forced_buy
+            stock_round_one
+            finish_round
+            pass_frankfurt
+            advance_to_buy_train('HLB', 'SB' => [[:depot]])
+            sb.trains.first
+          end
+
+          it 'lets the director add to the price beyond the treasury' do
+            train = forced_buy
+            expect(hlb.trains).to be_empty
+            expect(hlb.cash).to eq(350)
+            cash = c.cash
+            act(Action::BuyTrain.new(hlb, train: train, price: 360))
+            expect(train.owner).to eq(hlb)
+            expect(hlb.cash).to eq(0)
+            expect(cash - c.cash).to eq(10)
+          end
+
+          it 'keeps a corporation with a train to its treasury' do
+            train = forced_buy
+            act(train_action(hlb, [:depot]))
+            expect(hlb.cash).to eq(270)
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 271)) }
+              .to raise_error(GameError, /may only spend between 1M and 270M/)
+          end
+        end
+
         context 'emergency sale' do
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }
@@ -1902,6 +1935,35 @@ module Engine
             cash = a.cash
             sell(a, 'LTB', 20)
             expect(a.cash - cash).to eq(130)
+          end
+
+          it 'offers only the 3+3 once the sale was needed for it' do
+            emergency(31)
+            sell(a, 'LTB', 20)
+            train = game.depot.min_depot_train
+            expect(game.round.active_step.buyable_train_variants(train, mnb).map { |v| v[:name] }).to eq(['3+3'])
+            expect { act(train_action(mnb, [:depot])) }.to raise_error(GameError)
+          end
+
+          it 'takes the 3+3 once the sale was needed for it' do
+            emergency(31)
+            sell(a, 'LTB', 20)
+            act(train_action(mnb, [:depot, nil, nil, '3+3']))
+            expect(mnb.trains.map(&:name)).to eq(['3+3'])
+          end
+
+          it 'offers both variants when the sale was needed for the 3' do
+            emergency(31)
+            sell(a, 'LTB', 10)
+            train = game.depot.min_depot_train
+            expect(game.round.active_step.buyable_train_variants(train, mnb).map { |v| v[:name] }).to eq(%w[3 3+3])
+          end
+
+          it 'still offers another corporation\'s train after the sale' do
+            emergency(1)
+            sell(a, 'LTB', 20)
+            hlb = game.corporation_by_id('HLB')
+            expect(game.round.active_step.buyable_trains(mnb)).to include(*hlb.trains.select { |t| t.name == '2' })
           end
 
           it 'lets the forced buyer choose the plus variant from the bank' do
@@ -2022,6 +2084,36 @@ module Engine
             act(Action::Pass.new(mnb))
             expect(game.finished).to be(true)
             expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'breaks when the forced exchange at the end of the OR floats a company' do
+            par_and_buy(b, 'SB', 70, 2)
+            par_and_buy(a, 'MNB', 80, 4)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]] }, { 'MNB' => [[:depot]] })
+            [['N13', '3', 1], ['O12', '3', 1]].each do |lay|
+              finish_round
+              operate_with_tiles('MNB' => [lay])
+            end
+            finish_round
+            pass_frankfurt
+            advance_to_buy_train('MNB', {}, { 'MNB' => [['M12', '9', 2]] })
+            sb = game.corporation_by_id('SB')
+            expect(sb).not_to be_floated
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.company_by_id('OB')).to be_closed
+            expect(sb).to be_floated
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.bank.cash).to eq(0)
+            expect(game.bank).to be_broken
+
+            turn_of(c)
+            buy(c, 'SB')
+            expect(game.bank.cash).to eq(70)
+            expect(game.bank).to be_broken
           end
 
           it 'keeps the game going with 1 left in the bank' do

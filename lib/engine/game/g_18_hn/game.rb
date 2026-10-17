@@ -459,6 +459,7 @@ module Engine
             exchange_private!(company)
             company.close!
           end
+          check_bank_broken!
         end
 
         # 5.3 / 8.1: at the start of brown the remaining exchange privates are exchanged, unpaid this OR
