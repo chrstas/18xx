@@ -823,6 +823,26 @@ module Engine
           self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
         end
 
+        # 8.4.7: a bankrupt player always finishes last
+        def player_value(player)
+          player.bankrupt ? 0 : super
+        end
+
+        # 8.5: a bank at exactly 0 has run out of money too
+        def check_bank_broken!
+          @bank.break! unless @bank.cash.positive?
+        end
+
+        def action_processed(action)
+          super
+          check_bank_broken!
+        end
+
+        def payout_companies(ignore: [])
+          super
+          check_bank_broken!
+        end
+
         # reserved shares of unexchanged privates are ignored
         def sold_out?(corporation)
           corporation.player_share_holders.values.sum == 100 - corporation.reserved_shares.sum(&:percent)

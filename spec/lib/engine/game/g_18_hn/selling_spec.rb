@@ -1833,8 +1833,8 @@ module Engine
           let(:ltb) { game.corporation_by_id('LTB') }
           let(:mnb) { game.corporation_by_id('MNB') }
 
-          # Plays to MNB's forced train buy in OR 2, the price is what HLB pays for one of MNB's 2 trains
-          def emergency(price)
+          # Plays through OR 1, the price is what HLB pays for one of MNB's 2 trains
+          def strip_mnb(price)
             par_and_buy(a, 'MNB', 80, 4)
             par_and_buy(c, 'HLB', 70, 3)
             par_and_buy(b, 'VB', 70, 3)
@@ -1850,7 +1850,11 @@ module Engine
             operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
                     'HLB' => [[:depot], [:depot], ['MNB', price]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
                     'FWN' => [[:depot], ['MNB', 1], ['MNB', 1]])
+          end
 
+          # Plays to MNB's forced train buy in OR 2
+          def emergency(price)
+            strip_mnb(price)
             turn_of(c)
             par(c, 'LTB', 70)
             turn_of(c)
@@ -1922,6 +1926,112 @@ module Engine
             shares = a.shares_of(ltb).first(2)
             action = Action::SellShares.new(a, shares: shares, share_price: 65, percent: 20)
             expect { act(action) }.to raise_error(GameError, /Cannot sell shares of LTB/)
+          end
+
+          context 'bankruptcy' do
+            # Plays to MNB's forced train buy in OR 2 with a's money tied up in the unfloated LTB and SB
+            def go_broke
+              strip_mnb(1)
+              turn_of(a)
+              sell(a, 'MNB', 30)
+              par(a, 'LTB', 70)
+              2.times do
+                turn_of(a)
+                buy(a, 'LTB')
+              end
+              turn_of(a)
+              par(a, 'SB', 70)
+              finish_round
+              advance_to_buy_train('MNB')
+            end
+
+            it 'counts every player at full value before the bankruptcy' do
+              go_broke
+              expect(game.players.map { |player| game.player_value(player) }).to eq(game.players.map(&:value))
+            end
+
+            it 'puts the bankrupt player last at 0 and ranks the others by value' do
+              go_broke
+              act(Action::Bankrupt.new(mnb))
+              expect(game.finished).to be(true)
+              expect(game.game_end_reason).to eq(:bankrupt)
+              expect(a.value).to eq(670)
+              expect(game.result).to eq('b' => b.value, 'c' => c.value, 'a' => 0)
+              expect(game.result.keys).to eq(%w[b c a])
+            end
+          end
+        end
+
+        context 'bank at zero' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # Ends SR 1 with the bank holding rest after the privates are paid at the start of OR 1
+          def pay_privates_down_to(rest)
+            par_and_buy(a, 'MNB', 80, 4)
+            # shortcut: the bank hands its surplus to a so the privates' 75 leaves it at rest
+            game.bank.spend(game.bank.cash - 75 - rest, a)
+            finish_round
+          end
+
+          it 'breaks at exactly 0 and ends the game after the set' do
+            pay_privates_down_to(0)
+            expect(game.bank.cash).to eq(0)
+            expect(game.bank).to be_broken
+            expect(game.finished).to be(false)
+
+            pass_frankfurt
+            advance_to_buy_train('MNB')
+            act(train_action(mnb, [:depot]))
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'stays broken when the bank is paid again in the same operating round' do
+            pay_privates_down_to(0)
+            pass_frankfurt
+            advance_to_buy_train('MNB')
+            act(train_action(mnb, [:depot]))
+            expect(game.bank.cash).to eq(80)
+            expect(game.bank).to be_broken
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'stays broken when the first action after the payout pays the bank' do
+            par_and_buy(a, 'MNB', 80, 4)
+            finish_round
+            # FL builds both Frankfurt hexes, so MNB acts first in OR 3
+            operate_with_tiles({ 'FL' => [['J11', '921', 0]], 'MNB' => [['N11', '5', 4]] }, { 'MNB' => [[:depot]] })
+            finish_round
+            operate_with_tiles('FL' => [['J13', '922', 0]])
+            # shortcut: the bank hands its surplus to a so the privates' 95 leaves it at 0
+            game.bank.spend(game.bank.cash - 95, a)
+            finish_round
+            expect(game.bank.cash).to eq(0)
+            expect(game.current_entity).to eq(mnb)
+
+            act(Action::LayTile.new(mnb, tile: game.tiles.find { |tile| tile.name == '3' }, hex: game.hex_by_id('N13'),
+                                         rotation: 1))
+            expect(game.bank.cash).to eq(40)
+            expect(game.bank).to be_broken
+
+            act(Action::RunRoutes.new(mnb, routes: []))
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'keeps the game going with 1 left in the bank' do
+            pay_privates_down_to(1)
+            expect(game.bank.cash).to eq(1)
+            expect(game.bank).not_to be_broken
+
+            operate('MNB' => [[:depot]])
+            expect(game.finished).to be(false)
+            expect(game.round).to be_a(Engine::Round::Stock)
           end
         end
 
