@@ -35,7 +35,7 @@ module Engine
 
           def after_process(action)
             super unless no_company?
-            # 8.5: forced exchanges close the OR, before the end of the game is checked
+            # 8.5: after super no active step means the whole OR is over, so exchange before the game end check
             @game.forced_exchanges! unless active_step
           end
 
