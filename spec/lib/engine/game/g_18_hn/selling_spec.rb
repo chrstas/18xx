@@ -1785,6 +1785,88 @@ module Engine
           end
         end
 
+        context 'sold out at the end of a stock round' do
+          let(:sb) { game.corporation_by_id('SB') }
+
+          # b founds SB, a and c buy 20 % each; with OB's reserved share open SB has 90 % with players
+          def sell_out_sb(par_price)
+            par_and_buy(b, 'SB', par_price, 3)
+            2.times do
+              turn_of(a)
+              buy(a, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+            end
+          end
+
+          it 'moves SB up although the reserved share is still open' do
+            sell_out_sb(70)
+            expect(sb.player_share_holders.values.sum).to eq(90)
+            expect(sb.reserved_shares.sum(&:percent)).to eq(10)
+            finish_round
+            expect(sb.share_price.price).to eq(75)
+          end
+
+          it 'leaves SB in the top row' do
+            sell_out_sb(100)
+            finish_round
+            expect(sb.share_price.price).to eq(100)
+          end
+        end
+
+        context 'open market limit' do
+          let(:sb) { game.corporation_by_id('SB') }
+
+          before do
+            par_and_buy(b, 'SB', 70, 3)
+            2.times do
+              turn_of(a)
+              buy(a, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+            end
+            finish_round
+            operate('SB' => [[:depot]])
+            turn_of(b)
+            sell(b, 'SB', 30)
+          end
+
+          it 'offers only what fits below 50 percent in the pool' do
+            expect(game.share_pool.percent_of(sb)).to eq(30)
+            turn_of(a)
+            expect(offer(a, 'SB').map(&:first)).to match_array([10, 20])
+          end
+
+          it 'offers nothing once the pool holds 50 percent' do
+            turn_of(a)
+            sell(a, 'SB', 20)
+            expect(game.share_pool.percent_of(sb)).to eq(50)
+            turn_of(c)
+            expect(offer(c, 'SB')).to be_empty
+          end
+        end
+
+        context 'operating order' do
+          it 'runs the higher price first, then the marker that came first on the same field' do
+            par_and_buy(c, 'HLB', 80, 3)
+            par_and_buy(b, 'SB', 70, 3)
+            par_and_buy(a, 'MNB', 70, 3)
+            finish_round
+            pass_frankfurt
+            expect(game.round.entities.map(&:name)).to eq(%w[HLB SB MNB])
+          end
+        end
+
+        context 'player value' do
+          it 'counts privates at face value and concessions at nothing' do
+            game.players.each do |player|
+              privates = player.companies.reject { |company| Game::CONCESSIONS.include?(company.id) }
+              expect(game.player_value(player)).to eq(player.cash + privates.sum(&:value))
+            end
+            expect(game.companies.select { |company| Game::CONCESSIONS.include?(company.id) }.map(&:value).uniq).to eq([0])
+          end
+        end
+
         context 'train trade between corporations' do
           let(:sb) { game.corporation_by_id('SB') }
           let(:hlb) { game.corporation_by_id('HLB') }
@@ -1812,6 +1894,12 @@ module Engine
             expect(train.name).to eq('2+2')
             expect { act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2')) }
               .to raise_error(GameError, /Not a buyable train/)
+          end
+
+          it 'refuses a price of 0' do
+            train = trade('2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 0)) }
+              .to raise_error(GameError, /may not spend 0M/)
           end
 
           it 'hands a 2+2 over as a 2+2' do
