@@ -226,6 +226,38 @@ module Engine
           end
         end
 
+        # nobody runs, a company without a train buys one, everything else passes
+        def play_until(entity, step_class)
+          until game.current_entity == entity && game.round.active_step.is_a?(step_class)
+            current = game.current_entity
+            actions = game.round.active_step.actions(current)
+            act(if actions.include?('run_routes')
+                  Action::RunRoutes.new(current, routes: [])
+                elsif actions.include?('dividend')
+                  Action::Dividend.new(current, kind: 'withhold')
+                elsif actions.include?('buy_train') && current.trains.empty?
+                  train_action(current, [:depot])
+                else
+                  Action::Pass.new(current)
+                end)
+          end
+        end
+
+        def lay(entity, hex_id, tile_name, rotation)
+          tile = game.tiles.find { |t| t.name == tile_name }
+          act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
+        end
+
+        def build_bridge(entity, name)
+          step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+          item = step.buyable_items(entity).find { |candidate| candidate.description == "Bridge #{name}" }
+          act(Action::SpecialBuy.new(entity, item: item))
+        end
+
+        def city(hex_id)
+          game.hex_by_id(hex_id).tile.cities.first
+        end
+
         before { auction_all }
 
         context 'first stock round' do
@@ -1482,38 +1514,6 @@ module Engine
             game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
           end
 
-          # nobody runs, a company without a train buys one, everything else passes
-          def play_until(entity, step_class)
-            until game.current_entity == entity && game.round.active_step.is_a?(step_class)
-              current = game.current_entity
-              actions = game.round.active_step.actions(current)
-              act(if actions.include?('run_routes')
-                    Action::RunRoutes.new(current, routes: [])
-                  elsif actions.include?('dividend')
-                    Action::Dividend.new(current, kind: 'withhold')
-                  elsif actions.include?('buy_train') && current.trains.empty?
-                    train_action(current, [:depot])
-                  else
-                    Action::Pass.new(current)
-                  end)
-            end
-          end
-
-          def lay(entity, hex_id, tile_name, rotation)
-            tile = game.tiles.find { |t| t.name == tile_name }
-            act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
-          end
-
-          def build_bridge(entity, name)
-            step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
-            item = step.buyable_items(entity).find { |candidate| candidate.description == "Bridge #{name}" }
-            act(Action::SpecialBuy.new(entity, item: item))
-          end
-
-          def city(hex_id)
-            game.hex_by_id(hex_id).tile.cities.first
-          end
-
           def reached?(entity, node)
             game.graph_for_entity(entity).connected_nodes(entity).key?(node)
           end
@@ -1691,11 +1691,6 @@ module Engine
             end
           end
 
-          def lay(entity, hex_id, tile_name, rotation)
-            tile = game.tiles.find { |t| t.name == tile_name }
-            act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))
-          end
-
           context 'with ten percent of HLB in the pool' do
             let(:routes) { { 'HLB' => [%w[K8 K10]] } }
 
@@ -1864,6 +1859,208 @@ module Engine
               expect(game.player_value(player)).to eq(player.cash + privates.sum(&:value))
             end
             expect(game.companies.select { |company| Game::CONCESSIONS.include?(company.id) }.map(&:value).uniq).to eq([0])
+          end
+        end
+
+        context 'operating rights in foreign countries' do
+          let(:mwb) { game.corporation_by_id('MWB') }
+          let(:vb) { game.corporation_by_id('VB') }
+          let(:gruenberg) { game.hex_by_id('G14') }
+
+          def vb_route
+            route = Engine::Route.new(game, game.phase, vb.trains.first, connection_hexes: [%w[F17 F15 G14]], routes: [])
+            route.routes = [route]
+            route
+          end
+
+          # MWB in Marburg faces Grünberg, VB in Alsfeld faces F15 in Hessen-Kassel
+          before do
+            par_and_buy(game.players[0], 'MWB', 70, 3)
+            par_and_buy(game.players[1], 'VB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MWB' => [['F13', '5', 4]], 'VB' => [['F17', '6', 5]] },
+                               { 'MWB' => [[:depot]], 'VB' => [[:depot]] })
+            finish_round
+            play_until(mwb, Engine::Step::Track)
+          end
+
+          it 'refuses track in Hessen-Darmstadt without the concession' do
+            expect(game.operating_rights(mwb)).not_to include('DAR')
+            expect(game.graph_for_entity(mwb).connected_hexes(mwb)).to include(gruenberg)
+            expect(game.round.active_step.available_hex(mwb, gruenberg)).to be_nil
+            expect { lay(mwb, 'G14', '3', 2) }
+              .to raise_error(GameError, 'Cannot lay track without operating rights in the selected region')
+          end
+
+          context 'with MWB building from Marburg over Grünberg to Alsfeld' do
+            before do
+              act(right_action(mwb, 'HDC'))
+              lay(mwb, 'G14', '3', 2)
+              operate
+              finish_round
+              play_until(mwb, Engine::Step::Track)
+              lay(mwb, 'F15', '8', 4)
+              play_until(vb, Engine::Step::Track)
+            end
+
+            it 'keeps Grünberg out of reach over track in Hessen-Kassel without the concession' do
+              expect(game.hex_operating_rights?(vb, gruenberg)).to be(true)
+              expect(game.round.active_step.available_hex(vb, gruenberg)).to be_nil
+
+              act(right_action(vb, 'HKC'))
+              expect(game.round.active_step.available_hex(vb, gruenberg)).to be_truthy
+            end
+
+            it 'refuses a route through Hessen-Kassel without the concession' do
+              expect { vb_route.revenue }.to raise_error(GameError, 'VB needs operating rights for F15')
+            end
+
+            it 'accepts the route through Hessen-Kassel once the concession is bought' do
+              act(right_action(vb, 'HKC'))
+              play_until(vb, G18HN::Step::Route)
+              act(Action::RunRoutes.new(vb, routes: [vb_route]))
+              expect(game.log.map(&:message)).to include('VB runs a 2 train for 30M: F17-G14')
+            end
+          end
+        end
+
+        context 'plus trains and transit routes' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+          let(:sb) { game.corporation_by_id('SB') }
+
+          def hlb_route(train_name, connection_hexes)
+            train = hlb.trains.find { |candidate| candidate.name == train_name }
+            route = Engine::Route.new(game, game.phase, train, connection_hexes: connection_hexes, routes: [])
+            route.routes = [route]
+            route
+          end
+
+          def run(route)
+            act(Action::RunRoutes.new(hlb, routes: [route]))
+          end
+
+          context 'with HLB from Mainz over Rüsselsheim to Darmstadt' do
+            # two cities with a town between them
+            let(:route_hexes) { [%w[K8 K10], %w[K10 L11]] }
+
+            before do
+              par_and_buy(a, 'SB', 70, 3)
+              par_and_buy(b, 'HLB', 70, 3)
+              finish_round
+              play_until(sb, Engine::Step::Track)
+              lay(sb, 'L11', '927', 2)
+              play_until(hlb, Engine::Step::Track)
+              build_bridge(hlb, 'Mainz-Rüsselsheim')
+              lay(hlb, 'K10', '3', 4)
+              operate('HLB' => [[:depot], [:depot, nil, nil, '2+2']])
+              finish_round
+              play_until(hlb, Engine::Step::Route)
+            end
+
+            it 'lets a 2+2 train run two cities and a town' do
+              route = hlb_route('2+2', route_hexes)
+              expect(route.stops.map(&:hex).map(&:id)).to eq(%w[K8 K10 L11])
+              run(route)
+              expect(game.log.map(&:message)).to include('HLB runs a 2+2 train for 50M: K8-K10-L11')
+            end
+
+            it 'refuses the same route for a 2 train' do
+              expect { run(hlb_route('2', route_hexes)) }
+                .to raise_error(GameError, '3 is too many stops for 2 train')
+            end
+          end
+
+          context 'with HLB from Rheinland over Bingen and Alzey to Pfalz' do
+            let(:route_hexes) { [%w[J3 K4], %w[K4 L5 M6], %w[M6 N5]] }
+
+            # SB and MNB buy eight 2 trains, HLB the last one and the first 3 train as 3+3, so green starts
+            before do
+              game.players.cycle.first(3).zip(%w[SB MNB HLB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+              finish_round
+              trains = { 'SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot], [:depot, nil, nil, '3+3']] }
+              operate_with_tiles({ 'HLB' => [['K6', '9', 1]] }, trains)
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles({ 'HLB' => [['K4', '6', 2]] }, {}, { 'HLB' => 'K4' })
+              play_exchange_round
+              operate_with_tiles('HLB' => [['K4', '442', 5]])
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles('HLB' => [['L5', '9', 2]])
+              play_exchange_round
+              play_until(hlb, Engine::Step::Track)
+              lay(hlb, 'M6', '58', 0)
+              play_until(hlb, Engine::Step::Route)
+            end
+
+            it 'adds the transit bonus of Rheinland and Pfalz' do
+              route = hlb_route('3+3', route_hexes)
+              # J3 50, K4 30, M6 10, N5 30; Rheinland gives 10 to the south, Pfalz 20 to the west
+              expect(route.revenue).to eq(150)
+              expect(route.revenue_str).to eq('J3-K4-M6-N5 + Transit(30)')
+
+              run(route)
+              expect(game.log.map(&:message)).to include('HLB runs a 3+3 train for 150M: J3-K4-M6-N5 + Transit(30)')
+            end
+          end
+        end
+
+        context 'home station in the first operating round' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          def token_step
+            game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
+          end
+
+          # Worms is reached over the bridge, the yellow tile is laid before the token step
+          def reach_worms
+            build_bridge(mnb, 'Worms-Bensheim')
+            lay(mnb, 'N9', '5', 0)
+          end
+
+          def open_first_round
+            finish_round
+            pass_frankfurt
+          end
+
+          before { par_and_buy(a, 'MNB', 70, 3) }
+
+          it 'places the home station for free when the company first operates and keeps the token step open' do
+            cash = mnb.cash
+            expect(city('N11').tokened_by?(mnb)).to be(false)
+
+            open_first_round
+            expect(game.current_entity).to eq(mnb)
+            expect(city('N11').tokened_by?(mnb)).to be(true)
+            expect(mnb.cash).to eq(cash)
+
+            reach_worms
+            expect(game.round.active_step).to be_a(G18HN::Step::Token)
+            expect(token_step.actions(mnb)).to include('place_token')
+          end
+
+          it 'places a second station in the same round for 40' do
+            open_first_round
+            reach_worms
+
+            cash = mnb.cash
+            act(Action::PlaceToken.new(mnb, city: city('N9'), slot: 0))
+            expect(cash - mnb.cash).to eq(40)
+            expect(city('N11').tokened_by?(mnb)).to be(true)
+            expect(city('N9').tokened_by?(mnb)).to be(true)
+          end
+        end
+
+        context 'certificate limit' do
+          it 'counts privates and shares but not concessions' do
+            expect([a, b, c].map { |player| player.companies.map(&:id) })
+              .to eq([%w[FL FC TB NC], %w[HB BE WC OB HDC], %w[BR FB HKC]])
+            expect([a, b, c].map { |player| game.num_certs(player) }).to eq([2, 3, 2])
+            turn_of(b)
+            par(b, 'SB', 70)
+            expect(game.num_certs(b)).to eq(4)
           end
         end
 
