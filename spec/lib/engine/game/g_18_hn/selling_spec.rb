@@ -2149,6 +2149,16 @@ module Engine
             expect(game.corporation_by_id('SB')).to be_floated
           end
 
+          it 'offers FL nothing once the game ended at the end of an operating round' do
+            build_odenwald
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.round.active_step).to be_nil
+          end
+
           it 'still makes the forced exchange when the bank is already empty' do
             build_odenwald
             # shortcut: the bank hands all its cash to a

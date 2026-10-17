@@ -16,11 +16,10 @@ module Engine
             @game.auction_paused? ? 'Short Operating Round' : super
           end
 
-          # 8.2 / ch. 6: an OR without a company only waits for FL and ends once it has acted
+          # 8.2 / ch. 6: the privates' turn ends when the first company starts or, without a company, once FL has acted
           def start_operating
-            return super unless no_company?
-
             @privates_acted = true
+            super unless no_company?
           end
 
           def privates_acted?

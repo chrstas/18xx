@@ -52,7 +52,7 @@ module Engine
 
           def pending_company
             # 8.2: only before the first company operates
-            return if @round.current_operator || @round.privates_acted?
+            return if @round.privates_acted?
 
             fl = @game.company_by_id('FL')
             # ch. 6: an unsold FL does not lay in the short OR of the initial auction
