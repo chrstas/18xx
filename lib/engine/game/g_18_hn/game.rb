@@ -950,7 +950,8 @@ module Engine
           end
           # 8.4.5: the local line between both Frankfurt stations needs the Frankfurt transit right
           if !granted_right?(entity, 'FC') && route.paths.any? { |path| path.track == :narrow }
-            raise GameError, "#{entity.name} needs the Frankfurt transit right to use the local line"
+            # no longer route over the local line becomes valid, so the auto router may give up on it
+            raise RouteTooLong, "#{entity.name} needs the Frankfurt transit right to use the local line"
           end
 
           missing = route.all_hexes.reject { |hex| hex_operating_rights?(entity, hex) }

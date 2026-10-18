@@ -1396,6 +1396,11 @@ module Engine
             operate('SB' => [[:depot]], 'HLB' => [[:depot]], 'WEG' => [[:right, 'FC'], [:depot]])
           end
 
+          it 'refuses the local line as a route too long, so the auto router stops extending it' do
+            expect { weg_route(local_line).revenue }
+              .to raise_error(Engine::RouteTooLong, 'WEG needs the Frankfurt transit right to use the local line')
+          end
+
           it 'refuses the local line without the Frankfurt right, but not the route to Frankfurt' do
             expect { weg_route(local_line).revenue }
               .to raise_error(GameError, 'WEG needs the Frankfurt transit right to use the local line')
