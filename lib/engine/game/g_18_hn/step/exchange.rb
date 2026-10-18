@@ -23,7 +23,7 @@ module Engine
 
           # 5.3 / 8.1: privates can be exchanged from the green phase on
           def can_exchange?(entity)
-            return false unless @game.phase.available?('3')
+            return false unless @game.phase.status.include?('may_exchange')
 
             # 7.1: the 60 percent limit does not apply to an exchange
             !@game.exchange_share(entity).nil?
@@ -38,7 +38,7 @@ module Engine
           end
 
           def log_skip(entity)
-            super if @game.phase.available?('3')
+            super if @game.phase.status.include?('may_exchange')
           end
 
           def process_choose(action)

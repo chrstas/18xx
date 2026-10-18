@@ -134,6 +134,7 @@ module Engine
             train_limit: 4,
             tiles: %i[yellow green],
             operating_rounds: 2,
+            status: ['may_exchange'],
           },
           {
             name: '4',
@@ -141,6 +142,7 @@ module Engine
             train_limit: 3,
             tiles: %i[yellow green],
             operating_rounds: 2,
+            status: ['may_exchange'],
           },
           {
             name: '5',
@@ -148,6 +150,7 @@ module Engine
             train_limit: 2,
             tiles: %i[yellow green brown],
             operating_rounds: 3,
+            status: %w[borders_gone frankfurt_open],
           },
           {
             name: '6',
@@ -155,8 +158,15 @@ module Engine
             train_limit: 2,
             tiles: %i[yellow green brown],
             operating_rounds: 3,
+            status: %w[borders_gone frankfurt_open],
           },
         ].freeze
+
+        STATUS_TEXT = Base::STATUS_TEXT.dup.merge(
+          'may_exchange' => ['Exchange', 'BE, FB, TB and OB may be exchanged for a share before each SR and OR'],
+          'borders_gone' => ['No borders', 'Routes and track need no concession'],
+          'frankfurt_open' => ['Frankfurt open', 'Every company may lay track in Frankfurt'],
+        ).freeze
 
         TRAINS = [
           {
@@ -636,7 +646,7 @@ module Engine
 
         # 8.4.1: from the brown phase on the borders are gone and concessions are meaningless
         def borders_gone?
-          @phase.tiles.include?(:brown)
+          @phase.status.include?('borders_gone')
         end
 
         # 8.4.1: hexes the entity may operate in, nil once the borders are gone
@@ -831,7 +841,7 @@ module Engine
 
         # in yellow and green phases only the FL private may build Frankfurt
         def frankfurt_track_blocked?(hex)
-          self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.tiles.include?(:brown)
+          self.class::FRANKFURT_HEXES.include?(hex.name) && !@phase.status.include?('frankfurt_open')
         end
 
         # 8.4.7: shares of the company buying its train may cost the director his post, but only after the buy

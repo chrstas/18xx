@@ -70,6 +70,30 @@ module Engine
 
             expect(seen).to eq([['2', 1, 4], ['3', 2, 4], ['4', 2, 3], ['5', 3, 2], ['6', 3, 2]])
           end
+
+          it 'shows the effects of each phase as its status' do
+            seen = {}
+            loop do
+              seen[game.phase.name] = game.phase.status
+              break unless game.phase.upcoming
+
+              game.phase.next!
+            end
+
+            expect(seen).to eq(
+              '2' => [],
+              '3' => ['may_exchange'],
+              '4' => ['may_exchange'],
+              '5' => %w[borders_gone frankfurt_open],
+              '6' => %w[borders_gone frankfurt_open],
+            )
+          end
+
+          it 'explains every phase status' do
+            statuses = described_class::PHASES.flat_map { |phase| phase[:status] || [] }.uniq
+            expect(statuses).to contain_exactly('may_exchange', 'borders_gone', 'frankfurt_open')
+            expect(described_class::STATUS_TEXT.keys).to include(*statuses)
+          end
         end
 
         context 'trains' do
