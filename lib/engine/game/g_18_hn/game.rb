@@ -546,9 +546,13 @@ module Engine
             return hexes.all? { |id| hex_by_id(id).tile.color != :white }
           end
 
-          # 8.4.3: a city full of other companies' stations blocks a stop, an off-board area never does
-          stops = self.class::OBLIGATIONS[corporation.id].map do |ids|
-            ids.flat_map { |id| hex_by_id(id).tile.nodes }.reject { |node| node.city? && node.blocks?(corporation) }
+          obligation = self.class::OBLIGATIONS[corporation.id]
+          stops = obligation.each_with_index.map do |ids, index|
+            nodes = ids.flat_map { |id| hex_by_id(id).tile.nodes }
+            next nodes if index.zero? || index == obligation.size - 1
+
+            # 8.4.4: a city full of other companies' stations stays reachable, so it only blocks a stop in between
+            nodes.reject { |node| node.city? && node.blocks?(corporation) }
           end
           return false if stops.any?(&:empty?)
 

@@ -1087,6 +1087,50 @@ module Engine
             expect(met).to be_empty
           end
 
+          context "with a city full of other companies' stations" do
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'completes VB at Gießen although MWB holds its only station' do
+                  mwb = game.corporation_by_id('MWB')
+                  vb = game.corporation_by_id('VB')
+                  par_and_buy(game.players[0], 'MWB', 70, 3)
+                  par_and_buy(game.players[1], 'VB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'MWB' => [['F13', '57', 0]], 'VB' => [['F17', '5', 5]] },
+                                     { 'MWB' => [[:depot]], 'VB' => [[:depot]] })
+                  finish_round
+                  play_until(mwb, Engine::Step::Track)
+                  act(right_action(mwb, 'HDC'))
+                  lay(mwb, 'G12', '927', 0)
+                  operate_with_tiles({ 'VB' => [['G16', '8', 1]] }, {}, { 'MWB' => 'G12' })
+                  expect(game.hex_by_id('G12').tile.cities.first.blocks?(vb)).to be(true)
+                  expect(met).to be_empty
+
+                  finish_round
+                  expect { operate_with_tiles('VB' => [['G14', '4', 1]]) }.to change(vb, :cash).by(350)
+                  expect(met).to eq(['VB'])
+                end
+
+                # SB's home station fills Darmstadt, which MNB has to pass on its way to Frankfurt
+                it 'keeps MNB open while a city full of SB on the way blocks it' do
+                  mnb = game.corporation_by_id('MNB')
+                  par_and_buy(game.players[0], 'SB', 70, 3)
+                  par_and_buy(game.players[1], 'MNB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'FL' => [['J11', '921', 0]], 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]] },
+                                     { 'SB' => [[:depot]], 'MNB' => [[:depot]] })
+                  finish_round
+                  operate_with_tiles('SB' => [['K12', '8', 0]], 'MNB' => [['M10', '8', 3]])
+                  expect(%w[J11 K12 L11 M10 N11].map { |id| game.hex_by_id(id).tile.name }).to eq(%w[921 8 927 8 6])
+                  expect(game.hex_by_id('L11').tile.cities.first.blocks?(mnb)).to be(true)
+                  expect(met).to be_empty
+                end
+              end
+            end
+          end
+
           context 'with FWN building towards Bad Hersfeld' do
             before do
               turn_of(c)
@@ -1132,38 +1176,21 @@ module Engine
                   token = messages.index { |message| message.start_with?('FWN places a token on E18') }
                   expect(completes).to be < token
                 end
+
+                it 'completes FHB at Bad Hersfeld although FWN holds its only station' do
+                  fhb = game.corporation_by_id('FHB')
+                  operate_with_tiles('FWN' => [['D17', '58', 3]])
+                  finish_round
+                  operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' })
+                  bad_hersfeld = game.hex_by_id('E18').tile.cities.first
+                  expect(bad_hersfeld.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
+                  expect(bad_hersfeld.blocks?(fhb)).to be(true)
+                  finish_round
+                  # plus 350 from the obligation, minus 20 for the water at F19
+                  expect { operate_with_tiles('FHB' => [['F19', '9', 2]]) }.to change(fhb, :cash).by(330)
+                  expect(met).to eq(['FHB'])
+                end
               end
-            end
-
-            it 'completes FHB the moment a green upgrade gives Bad Hersfeld a second slot' do
-              operate_with_tiles('FWN' => [['D17', '58', 3]])
-              par_and_buy(b, 'MWB', 70, 3)
-              par_and_buy(a, 'VB', 70, 3)
-              finish_round
-              operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, { 'MWB' => [[:depot]] * 3, 'VB' => [[:depot]] * 3 },
-                                 { 'FWN' => 'E18' })
-              finish_round
-              log_size = game.log.to_a.size
-              # FHB builds its last hex, then buys the last 2 train and the first 3 train; FWN upgrades in green
-              operate_with_tiles({ 'FHB' => [['F19', '9', 2]], 'FWN' => [['E18', '441', 2]] }, { 'FHB' => [[:depot]] * 2 })
-
-              messages = game.log.map(&:message).drop(log_size)
-              upgrade = messages.index('FWN lays tile #441 with rotation 2 on E18 (Bad Hersfeld)')
-              expect(game.phase.name).to eq('3')
-              expect(game.hex_by_id('E18').tile.cities.first.normal_slots).to eq(2)
-              expect(messages.index { |message| message.include?('lays tile #9 with rotation 2 on F19') }).to be < upgrade
-              expect(messages[upgrade + 1]).to eq('FHB completes its obligated track route')
-              expect(met).to eq(['FHB'])
-            end
-
-            it 'blocks FHB at Bad Hersfeld once FWN holds its only station' do
-              operate_with_tiles('FWN' => [['D17', '58', 3]])
-              finish_round
-              operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' })
-              expect(game.hex_by_id('E18').tile.cities.first.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
-              finish_round
-              operate_with_tiles('FHB' => [['F19', '9', 2]])
-              expect(met).to be_empty
             end
           end
         end
