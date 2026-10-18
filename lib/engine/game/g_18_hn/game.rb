@@ -164,7 +164,7 @@ module Engine
 
         STATUS_TEXT = Base::STATUS_TEXT.dup.merge(
           'may_exchange' => ['Exchange', 'BE, FB, TB and OB may be exchanged for a share before each SR and OR'],
-          'borders_gone' => ['No borders', 'Routes and track need no concession'],
+          'borders_gone' => ['No borders', 'Concessions no longer apply, only the Frankfurt transit right is still needed'],
           'frankfurt_open' => ['Frankfurt open', 'Every company may lay track in Frankfurt'],
         ).freeze
 
