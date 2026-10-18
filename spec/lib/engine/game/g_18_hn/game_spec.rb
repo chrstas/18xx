@@ -137,6 +137,29 @@ module Engine
             end
           end
         end
+
+        context '990019' do
+          # Player 3 holds 21 of 21 certificates in stock round 8
+          let(:game) { fixture_at_action(416) }
+          let(:player) { game.player_by_id(3) }
+          let(:step) { game.round.active_step }
+          let(:ipo_shares) do
+            game.corporations.select(&:floated?).flat_map { |c| c.shares.select { |s| s.buyable && !s.president } }
+          end
+
+          it 'offers no share from the IPO to a player at the certificate limit' do
+            expect(game.current_entity).to eq(player)
+            expect(game.num_certs(player)).to eq(game.cert_limit(player))
+            expect(step.actions(player)).to eq(%w[sell_shares pass])
+            expect(ipo_shares).not_to be_empty
+            expect(ipo_shares.none? { |share| step.can_buy?(player, share.to_bundle) }).to be(true)
+          end
+
+          it 'offers the IPO shares again with one more certificate allowed' do
+            allow(game).to receive(:cert_limit).and_return(22)
+            expect(step.actions(player)).to include('buy_shares')
+          end
+        end
       end
     end
   end
