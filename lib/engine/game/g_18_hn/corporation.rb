@@ -17,23 +17,6 @@ module Engine
             share.buyable = false
           end
         end
-
-        def floated?
-          return false unless @floatable
-
-          @floated ||= (percent_to_float <= 0)
-        end
-
-        # a reserved share exchanged for a private counts towards the float
-        def percent_to_float
-          return 0 if @floated
-
-          [@float_percent - (100 - percent_ipo), 0].max
-        end
-
-        def percent_ipo
-          @ipo_owner.shares_by_corporation[self].sum(&:percent)
-        end
       end
     end
   end
