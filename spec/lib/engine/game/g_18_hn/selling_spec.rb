@@ -2388,6 +2388,74 @@ module Engine
               expect(game.result.keys).to eq(%w[b c a])
             end
           end
+
+          context 'bankruptcy with own second company' do
+            let(:sb) { game.corporation_by_id('SB') }
+            let(:vb) { game.corporation_by_id('VB') }
+
+            # a sells MNB down to the director's certificate and floats SB, which buys a 3 in OR 2 before MNB
+            def go_broke_beside_sb
+              strip_mnb(1)
+              turn_of(a)
+              sell(a, 'MNB', 40)
+              par(a, 'SB', 70)
+              turn_of(b)
+              buy(b, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+              turn_of(a)
+              buy(a, 'SB')
+              turn_of(a)
+              par(a, 'LTB', 70)
+              2.times do
+                turn_of(a)
+                buy(a, 'LTB')
+              end
+              finish_round
+              advance_to_buy_train('MNB', 'SB' => [[:depot]])
+            end
+
+            it 'offers bankruptcy and the trains of the other companies from 1' do
+              go_broke_beside_sb
+              train = sb.trains.first
+              expect(sb.owner).to eq(a)
+              expect(train.name).to eq('3')
+              expect(game.total_emr_buying_power(a, mnb)).to eq(99)
+              expect(game.can_go_bankrupt?(a, mnb)).to be(true)
+              expect(game.round.actions_for(mnb)).to include('bankrupt', 'buy_train')
+              expect(game.round.active_step.buyable_trains(mnb)).to include(train)
+              expect(game.round.active_step.spend_minmax(mnb, train)).to eq([1, 34])
+            end
+
+            it "buys the train of the director's other company for 1" do
+              go_broke_beside_sb
+              train = sb.trains.first
+              cash = sb.cash
+              act(Action::BuyTrain.new(mnb, train: train, price: 1))
+              expect(mnb.trains).to eq([train])
+              expect(sb.cash - cash).to eq(1)
+              expect(a.bankrupt).to be_falsey
+              expect(game.finished).to be(false)
+            end
+
+            it "buys another player's train for 1" do
+              go_broke_beside_sb
+              train = vb.trains.first
+              expect(vb.owner).to eq(b)
+              expect(game.round.active_step.buyable_trains(mnb)).to include(train)
+              cash = vb.cash
+              act(Action::BuyTrain.new(mnb, train: train, price: 1))
+              expect(train.owner).to eq(mnb)
+              expect(vb.cash - cash).to eq(1)
+              expect(game.finished).to be(false)
+            end
+
+            it 'refuses a price of 0' do
+              go_broke_beside_sb
+              expect { act(Action::BuyTrain.new(mnb, train: sb.trains.first, price: 0)) }
+                .to raise_error(GameError, /may not spend 0M/)
+            end
+          end
         end
 
         context 'emergency sale of the buying company' do
