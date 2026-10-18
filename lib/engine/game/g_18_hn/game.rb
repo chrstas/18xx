@@ -703,7 +703,9 @@ module Engine
           nodes = graph_for_entity(entity).connected_nodes(entity)
           self.class::BRIDGES.each_index.select do |index|
             !@built_bridges.include?(index) &&
-              self.class::BRIDGES[index].any? { |id, _edge| hex_by_id(id).tile.city_towns.any? { |node| nodes[node] } }
+              self.class::BRIDGES[index].any? do |id, _edge|
+                hex_by_id(id).tile.city_towns.any? { |node| nodes[node] && !(node.city? && node.blocks?(entity)) }
+              end
           end
         end
 

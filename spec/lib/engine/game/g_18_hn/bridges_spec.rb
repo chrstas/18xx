@@ -439,6 +439,47 @@ module Engine
           end
         end
 
+        context 'with the Mainz-Wiesbaden bridge and the Nassau concession' do
+          # HLB bridges to Wiesbaden in OR 1, WEG may lay its home tile there, HLB buys the concession in OR 2
+          def bridge_to_wiesbaden(with_weg:)
+            found(game.players[0], 'HLB')
+            found(game.players[1], 'WEG') if with_weg
+            finish_round
+            play_to_track_step(hlb)
+            build_bridge(hlb, 'Mainz-Wiesbaden')
+            if with_weg
+              play_to_track_step(weg)
+              lay(weg, 'J9', '57', 1)
+            end
+            finish_operating_round
+            finish_round
+            play_to_track_step(hlb)
+            name = game.company_by_id('NC').name
+            act(Action::SpecialBuy.new(hlb, item: special_buy_step.buyable_items(hlb).find { |i| i.description == name }))
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'offers no bridge out of Wiesbaden once WEG holds its only station' do
+                bridge_to_wiesbaden(with_weg: true)
+                wiesbaden = game.hex_by_id('J9').tile.cities.first
+                expect(wiesbaden.tokens.compact.map(&:corporation)).to eq([weg])
+                expect(game.graph_for_entity(hlb).connected_nodes(hlb)).to include(wiesbaden)
+
+                expect(bridge_items(hlb)).to include('Bridge Mainz-Groß-Gerau', 'Bridge Mainz-Rüsselsheim')
+                expect(bridge_items(hlb)).not_to include('Bridge Wiesbaden-Rüsselsheim', 'Bridge Wiesbaden-Rüsselsheim (free)')
+              end
+
+              it 'offers the bridge out of Wiesbaden while its station is free' do
+                bridge_to_wiesbaden(with_weg: false)
+                expect(bridge_items(hlb)).to include('Bridge Wiesbaden-Rüsselsheim')
+              end
+            end
+          end
+        end
+
         context 'with a yellow tile on the bridge hex Wiesbaden' do
           let(:yellow) { game.hex_by_id('J9').tile }
 
