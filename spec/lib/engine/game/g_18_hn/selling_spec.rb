@@ -1786,6 +1786,7 @@ module Engine
 
           it 'leaves SB in the top row' do
             sell_out_sb(100)
+            expect(game.sold_out?(sb)).to be(true)
             finish_round
             expect(sb.share_price.price).to eq(100)
           end
@@ -2051,6 +2052,82 @@ module Engine
             turn_of(b)
             par(b, 'SB', 70)
             expect(game.num_certs(b)).to eq(4)
+          end
+        end
+
+        context 'train returned after the train limit drops' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fhb) { game.corporation_by_id('FHB') }
+
+          # SB holds four 3 trains, FHB is at its train buy once the 3 trains are gone
+          before do
+            par_and_buy(a, 'MNB', 70, 3)
+            par_and_buy(b, 'FHB', 70, 3)
+            par_and_buy(c, 'HLB', 100, 3)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]], 'FHB' => [['G20', '5', 1]] },
+                               'MNB' => [[:depot]] * 2, 'FHB' => [[:depot]], 'HLB' => [[:depot]] * 2)
+            finish_round
+            operate_with_tiles('MNB' => [['N13', '3', 1]], 'FHB' => [['F19', '9', 2]])
+            par_and_buy(a, 'WLB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['M12', '7', 5]], 'FHB' => [['E18', '5', 4]] }, 'WLB' => [[:depot]] * 4)
+            finish_round
+            # MNB completes the Odenwald, so SB floats with its full capital
+            operate_with_tiles('MNB' => [['O12', '3', 1]])
+            par_and_buy(b, 'SB', 80, 3)
+            finish_round
+            advance_to_buy_train('FHB', 'SB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 2)
+          end
+
+          # FHB buys the first 4 train, SB is one over the new limit of 3 and gives back a 3
+          def return_train
+            expect(game.current_entity).to eq(fhb)
+            expect(game.depot.upcoming.first.name).to eq('4')
+            act(train_action(fhb, [:depot]))
+            expect(game.phase.name).to eq('4')
+            expect(game.current_entity).to eq(sb)
+            train = sb.trains.first
+            act(Action::DiscardTrain.new(sb, train: train))
+            expect(game.current_entity).to eq(fhb)
+            train
+          end
+
+          it 'puts the returned train in the pool without compensation' do
+            expect(sb.trains.map(&:name)).to eq(%w[3 3 3 3])
+            cash = sb.cash
+            train = return_train
+            expect(sb.trains.size).to eq(3)
+            expect(sb.cash).to eq(cash)
+            expect(train.owner).to eq(game.depot)
+            expect(game.depot.discarded).to eq([train])
+          end
+
+          it 'offers the returned train as normal and as plus train at face value' do
+            train = return_train
+            variants = game.round.active_step.buyable_train_variants(train, fhb)
+            expect(variants.map { |v| [v[:name], v[:price]] }).to eq([['3', 150], ['3+3', 180]])
+          end
+
+          it 'sells the returned train as a 3 for 150' do
+            train = return_train
+            expect { act(Action::BuyTrain.new(fhb, train: train, price: 150, variant: '3')) }.to change(fhb, :cash).by(-150)
+            expect(train.owner).to eq(fhb)
+            expect(train.name).to eq('3')
+          end
+
+          it 'sells the returned train as a 3+3 for 180' do
+            train = return_train
+            expect { act(Action::BuyTrain.new(fhb, train: train, price: 180, variant: '3+3')) }.to change(fhb, :cash).by(-180)
+            expect(train.owner).to eq(fhb)
+            expect(train.name).to eq('3+3')
+          end
+
+          it 'offers the next 4 train beside the returned train' do
+            train = return_train
+            trains = game.round.active_step.buyable_trains(fhb)
+            expect(trains).to include(train)
+            expect(trains.map(&:name)).to include('4')
           end
         end
 
