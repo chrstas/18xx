@@ -911,6 +911,18 @@ module Engine
             expect(game.round.entities.first.id).to eq('WEG')
           end
 
+          it 'lets BE pass its special tile once no tile fits' do
+            be = game.company_by_id('BE')
+            expect(game.current_entity).to eq(be)
+            expect(game.round.active_step.actions(be)).to eq(['lay_tile'])
+
+            # set state: the real flow empties the supply only once all 18 yellow town tiles are laid
+            game.tiles.reject! { |tile| %w[3 4 58].include?(tile.name) }
+            expect(game.round.active_step.actions(be)).to eq(%w[lay_tile pass])
+            act(Action::Pass.new(be))
+            expect(be).to be_closed
+          end
+
           it 'pays no dividend on the exchanged shares in this operating round' do
             fhb = game.corporation_by_id('FHB')
             sb = game.corporation_by_id('SB')
@@ -921,6 +933,24 @@ module Engine
             operate
             play_until_operating
             expect(dividend_step.dividends_for_entity(fhb, c, 10)).to eq(60)
+          end
+        end
+
+        context 'special tile after a voluntary exchange' do
+          let(:be) { game.company_by_id('BE') }
+
+          it 'lets BE pass once no tile fits' do
+            play_into_green
+            act(Action::Choose.new(game.current_entity, choice: 'Decline')) until game.current_entity == be
+            act(Action::Choose.new(be, choice: 'Exchange'))
+            expect(game.current_entity).to eq(be)
+            expect(game.round.active_step.actions(be)).to eq(['lay_tile'])
+
+            # set state: the real flow empties the supply only once all 18 yellow town tiles are laid
+            game.tiles.reject! { |tile| %w[3 4 58].include?(tile.name) }
+            expect(game.round.active_step.actions(be)).to eq(%w[lay_tile pass])
+            act(Action::Pass.new(be))
+            expect(be).to be_closed
           end
         end
 

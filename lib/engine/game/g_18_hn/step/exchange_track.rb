@@ -56,9 +56,13 @@ module Engine
             @round.exchanged_companies.first
           end
 
-          # 5.3: BE, TB and OB must lay their tile, HB may
+          # 5.3: BE, TB and OB must lay their tile, HB may; without a fitting tile nobody must
           def optional?(company)
-            !@game.abilities(company, :exchange)
+            !@game.abilities(company, :exchange) || no_tile?(company)
+          end
+
+          def no_tile?(company)
+            Array(abilities(company).hexes).all? { |id| potential_tiles(company, @game.hex_by_id(id)).empty? }
           end
         end
       end
