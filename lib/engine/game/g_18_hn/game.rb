@@ -265,7 +265,7 @@ module Engine
           companies
         end
 
-        # grant_right's ability is display only; @granted_rights is authoritative
+        # grant_right!'s ability is display only; @granted_rights is authoritative
         def granted_right?(corporation, concession_id)
           @granted_rights[corporation.id].include?(concession_id)
         end
@@ -274,13 +274,13 @@ module Engine
           concession = concession_companies[concession_id]
           seller = concession.owner
           entity.spend(RIGHT_COST, seller)
-          grant_right(entity, concession)
+          grant_right!(entity, concession)
           @log << "#{entity.name} buys the #{concession.name} from #{seller.name} for #{format_currency(RIGHT_COST)}"
           # 8.4.3: a route through another country counts once the concession is bought
           check_obligations!
         end
 
-        def grant_right(corporation, concession_company)
+        def grant_right!(corporation, concession_company)
           @granted_rights[corporation.id] << concession_company.id
           ability = Ability::Base.new(
             type: 'base',
@@ -782,14 +782,14 @@ module Engine
           @built_bridges.flat_map { |index| self.class::BRIDGES[index].select { |id, _edge| id == hex.id }.map(&:last) }
         end
 
-        def restore_bridge_paths(hex)
+        def restore_bridge_paths!(hex)
           missing = built_bridge_edges(hex).reject { |edge| hex.tile.exits.include?(edge) }
           missing.each { |edge| add_bridge_path!(hex.tile, edge) }
           clear_graph unless missing.empty?
         end
 
         # 8.4: a bridge belongs to track building, so a station or a run closes it for this OR
-        def close_bridge_window(entity)
+        def close_bridge_window!(entity)
           @bridge_or[entity] = current_or
         end
 

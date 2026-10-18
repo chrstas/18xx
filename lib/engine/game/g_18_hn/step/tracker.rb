@@ -19,7 +19,7 @@ module Engine
         def hex_neighbors(entity, hex)
           edges = super
           bridges = @game.built_bridge_edges(hex)
-          return edges if !edges || (edges & bridges).empty?
+          return edges if !edges || !edges.intersect?(bridges)
 
           nodes = @game.graph_for_entity(entity).connected_nodes(entity)
           return edges if hex.tile.city_towns.none? { |node| nodes[node] }
@@ -41,7 +41,7 @@ module Engine
           @game.remove_bridge_paths!(action.hex.tile)
           super
         ensure
-          @game.restore_bridge_paths(action.hex)
+          @game.restore_bridge_paths!(action.hex)
         end
       end
     end

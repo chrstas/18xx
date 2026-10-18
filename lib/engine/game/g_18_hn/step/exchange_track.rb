@@ -9,11 +9,12 @@ module Engine
         # 5.3: BE, TB and OB lay their special tile right after the exchange, HB when brown starts, then they close
         class ExchangeTrack < SpecialTrack
           ACTIONS = %w[lay_tile].freeze
+          ACTIONS_WITH_PASS = %w[lay_tile pass].freeze
 
           def actions(entity)
             return [] unless entity == pending_company
 
-            optional?(entity) ? ACTIONS + %w[pass] : ACTIONS
+            optional?(entity) ? ACTIONS_WITH_PASS : ACTIONS
           end
 
           def description

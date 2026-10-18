@@ -16,7 +16,7 @@ module Engine
 
             super
             # 8.4: buying a train ends the building, so no bridge after it
-            @game.close_bridge_window(action.entity)
+            @game.close_bridge_window!(action.entity)
             @game.deferred_president_change!(action.entity) if @corporations_sold.include?(action.entity)
           end
 
