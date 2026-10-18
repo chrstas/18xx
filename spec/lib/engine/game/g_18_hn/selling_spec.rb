@@ -1262,6 +1262,19 @@ module Engine
               expect(owner.cash - cash).to eq(10)
             end
 
+            it 'pays the raised income on top after the second tile' do
+              lay_frankfurt('J11', '921')
+              operate('SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+              finish_round
+              owner = fl.owner
+              cash = owner.cash
+              lay_frankfurt('J13', '922')
+              expect(fl.revenue).to eq(20)
+              # 10 at the start of the round plus 10 after the lay
+              expect(current_or_log.count("#{owner.name} collects 10M from #{fl.name}")).to eq(2)
+              expect(owner.cash - cash).to eq(10)
+            end
+
             it 'allows one tile per operating round' do
               lay_frankfurt('J11', '921')
 
@@ -2065,6 +2078,7 @@ module Engine
             par_and_buy(b, 'FHB', 70, 3)
             par_and_buy(c, 'HLB', 100, 3)
             finish_round
+            # the FHB tiles complete its obligated track, without that money FHB cannot pay for the 4
             operate_with_tiles({ 'MNB' => [['N11', '5', 4]], 'FHB' => [['G20', '5', 1]] },
                                'MNB' => [[:depot]] * 2, 'FHB' => [[:depot]], 'HLB' => [[:depot]] * 2)
             finish_round
@@ -2106,19 +2120,19 @@ module Engine
           it 'offers the returned train as normal and as plus train at face value' do
             train = return_train
             variants = game.round.active_step.buyable_train_variants(train, fhb)
-            expect(variants.map { |v| [v[:name], v[:price]] }).to eq([['3', 150], ['3+3', 180]])
+            expect(variants.map { |v| [v[:name], v[:price]] }).to match_array([['3', 150], ['3+3', 180]])
           end
 
           it 'sells the returned train as a 3 for 150' do
             train = return_train
-            expect { act(Action::BuyTrain.new(fhb, train: train, price: 150, variant: '3')) }.to change(fhb, :cash).by(-150)
+            expect { act(train_action(fhb, [:depot, nil, nil, '3'])) }.to change(fhb, :cash).by(-150)
             expect(train.owner).to eq(fhb)
             expect(train.name).to eq('3')
           end
 
           it 'sells the returned train as a 3+3 for 180' do
             train = return_train
-            expect { act(Action::BuyTrain.new(fhb, train: train, price: 180, variant: '3+3')) }.to change(fhb, :cash).by(-180)
+            expect { act(train_action(fhb, [:depot, nil, nil, '3+3'])) }.to change(fhb, :cash).by(-180)
             expect(train.owner).to eq(fhb)
             expect(train.name).to eq('3+3')
           end
