@@ -403,6 +403,23 @@ module Engine
             expect(bridge_items(hlb)).to contain_exactly('Bridge Mainz-Groß-Gerau', 'Bridge Mainz-Rüsselsheim')
           end
 
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'offers no bridge once HLB has bought a train' do
+                lay(hlb, 'K8', '920', 0)
+                play_to(hlb, G18HN::Step::BuyTrain)
+                expect(hlb.trains).to be_empty
+                expect(bridge_items(hlb)).to include('Bridge Mainz-Wiesbaden')
+
+                train = game.depot.min_depot_train
+                act(Action::BuyTrain.new(hlb, train: train, price: train.price))
+                expect(bridge_items(hlb)).to be_empty
+              end
+            end
+          end
+
           it 'lays track after building a bridge' do
             build_bridge(hlb, 'Mainz-Wiesbaden')
             lay(hlb, 'K6', '9', 1)
