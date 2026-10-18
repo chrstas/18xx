@@ -470,11 +470,10 @@ module Engine
         # 5.3 / 8.1: at the start of brown the remaining exchange privates are exchanged, unpaid this OR
         def event_close_companies!
           exchange_order.each do |company|
-            owner = company.owner
-            corporation = exchange_share(company).corporation
+            share = exchange_share(company)
             @log << "#{company.name} must be exchanged"
             exchange_private!(company)
-            @round.non_paying_shares[owner][corporation] += 1
+            @round.non_paying_shares << share
             # BE, TB and OB stay open for their special tile, see close: never in entities.rb
             if special_hexes_built?(company)
               company.close!

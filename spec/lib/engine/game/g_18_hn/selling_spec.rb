@@ -251,6 +251,16 @@ module Engine
           game.hex_by_id(hex_id).tile.cities.first
         end
 
+        def play_until_operating
+          until game.round.is_a?(Engine::Round::Operating)
+            game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : finish_round
+          end
+        end
+
+        def play_until_stock
+          game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : operate until game.round.is_a?(Engine::Round::Stock)
+        end
+
         before { auction_all }
 
         context 'first stock round' do
@@ -754,16 +764,6 @@ module Engine
         end
 
         context 'forced exchange when brown starts' do
-          def play_until_operating
-            until game.round.is_a?(Engine::Round::Operating)
-              game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : finish_round
-            end
-          end
-
-          def play_until_stock
-            game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : operate until game.round.is_a?(Engine::Round::Stock)
-          end
-
           def dividend_step
             game.round.steps.find { |step| step.is_a?(Engine::Step::Dividend) }
           end
@@ -2142,6 +2142,86 @@ module Engine
             trains = game.round.active_step.buyable_trains(fhb)
             expect(trains).to include(train)
             expect(trains.map(&:name)).to include('4')
+          end
+        end
+
+        context 'exchange share sold in the operating round brown starts' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fhb) { game.corporation_by_id('FHB') }
+
+          let(:routes) do
+            { 'SB' => [%w[L11 M10 N11]], 'MNB' => [%w[N11 O10], %w[N11 M10 L11]], 'HLB' => [%w[K8 K6 K4]] }
+          end
+
+          # b owns OB but no SB share; WLB buys the first 5 and FHB's only train, so FHB of b must buy before SB pays
+          def play_into_brown
+            { c => 'SB', a => 'MNB', b => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 100)
+            end
+            3.times do
+              { c => 'SB', a => 'MNB', b => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            finish_round
+
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]], 'HLB' => [['K6', '9', 1]] },
+                               { 'SB' => [[:depot]] * 3, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3 })
+            play_until_operating
+            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 4]] }, { 'SB' => [[:depot]] })
+            12.times do
+              play_until_operating
+              operate
+            end
+            play_until_stock
+
+            par_and_buy(c, 'WLB', 100, 3)
+            par_and_buy(b, 'FHB', 70, 3)
+            par_and_buy(a, 'WEG', 70, 2)
+            finish_round
+            play_exchange_round
+            operate_with_tiles({ 'WLB' => [['C14', '5', 4]] },
+                               {
+                                 'WLB' => [['SB', 1]],
+                                 'FHB' => [['HLB', 1], [:depot]],
+                                 'SB' => [[:depot]],
+                                 'MNB' => [[:depot]],
+                                 'HLB' => [[:depot]] * 2,
+                               })
+            play_until_operating
+            operate('WLB' => [['SB', 1, '3']], 'SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            play_exchange_round while game.round.is_a?(G18HN::Round::Exchange)
+            # keeps b and FHB together below the 550 of a 5+5
+            turn_of(b)
+            buy(b, 'MNB')
+            play_until_operating
+            operate('SB' => [[:depot]], 'MNB' => [[:depot]])
+            play_until_operating
+            advance_to_buy_train('FHB', 'WLB' => [['FHB', 1], [:depot]])
+          end
+
+          before { play_into_brown }
+
+          it 'charges nothing for the sold exchange share when SB pays out' do
+            expect(game.phase.name).to eq('5')
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB FHB SB MNB HLB])
+            expect(game.share_by_id('SB_8').owner).to eq(b)
+            expect(b.shares_of(sb).map(&:id)).to eq(['SB_8'])
+            expect(fhb.trains).to be_empty
+            expect(b.cash + fhb.cash).to eq(510)
+
+            sell(b, 'SB', 10)
+            expect(game.share_pool.shares_of(sb).map(&:id)).to eq(['SB_8'])
+            act(Action::BuyTrain.new(fhb, train: game.depot.depot_trains.find { |t| t.name == '5' }, price: 550,
+                                          variant: '5+5'))
+            expect(b.cash).to eq(0)
+
+            play_until(sb, G18HN::Step::Route)
+            act(Action::RunRoutes.new(sb, routes: planned_routes(sb)))
+            act(Action::Dividend.new(sb, kind: 'payout'))
+            expect(b.cash).to eq(0)
           end
         end
 
