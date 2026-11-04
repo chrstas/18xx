@@ -7,6 +7,7 @@ require_relative '../base'
 require_relative '../double_sided_tiles'
 require_relative 'trains'
 require_relative 'sugar'
+require_relative 'machines'
 
 module Engine
   module Game
@@ -19,6 +20,7 @@ module Engine
         include Map
         include Trains
         include Sugar
+        include Machines
 
         include DoubleSidedTiles
 
@@ -215,6 +217,7 @@ module Engine
           initialize_tile_opposites!
           @unused_tiles = []
           sugar_setup
+          machines_setup
           fc_setup
           @minor_graph = Graph.new(self, skip_track: :broad)
         end
