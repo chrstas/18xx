@@ -26,6 +26,8 @@ module Engine
 
   GAME_METAS = GAME_META_BY_TITLE.values
 
+  WERKSTATT_TITLES = %w[18HN].freeze
+
   VISIBLE_GAMES_WITH_VARIANTS = GAME_METAS.select do |game_meta|
     %i[alpha beta production].include?(game_meta::DEV_STAGE)
   end

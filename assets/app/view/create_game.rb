@@ -250,8 +250,9 @@ module View
       game_variants = @game_variants.map do |sym, variant|
         update_player_range(variant[:meta])
 
+        next unless Engine::WERKSTATT_TITLES.include?(variant[:meta].title)
+
         stage = variant[:meta]::DEV_STAGE
-        next if stage == :prealpha && @production
 
         stage_str = stage == :production ? '' : "(#{stage}) "
 
@@ -507,7 +508,7 @@ module View
     end
 
     def visible_games
-      @visible_games ||= (@production ? Engine::VISIBLE_GAMES : Engine::GAME_METAS).sort
+      @visible_games ||= Engine::GAME_METAS.select { |g| Engine::WERKSTATT_TITLES.include?(g.title) }.sort
     end
 
     def selected_game
@@ -637,7 +638,6 @@ module View
 
     def render_games_table(cols = %w[title location status])
       selected_games = game_rows_data.sort_by { |g| [g['meta']::PROTOTYPE ? 1 : 0, g['meta']] }
-      selected_games = selected_games.select { |g| %i[alpha beta production].include?(g['meta']::DEV_STAGE) } if @production
 
       if @keywords&.size&.positive?
         searches = @keywords.split(/[:, ]+/).map(&:upcase)

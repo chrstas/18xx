@@ -29,7 +29,7 @@ module View
 
       # Build lookup for display names
       title_display = {}
-      Engine::VISIBLE_GAMES_WITH_VARIANTS.sort_by(&:display_title).each do |meta|
+      Engine::GAME_METAS.select { |m| Engine::WERKSTATT_TITLES.include?(m.title) }.sort_by(&:display_title).each do |meta|
         title_display[meta.title] = meta.display_title
       end
 

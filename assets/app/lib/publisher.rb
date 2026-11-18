@@ -5,7 +5,8 @@ module Lib
     def self.link_list(component: nil, publishers: [])
       # show publishers for all playable games on the welcome page
       if publishers.empty?
-        publishers = Engine::VISIBLE_GAMES
+        publishers = Engine::GAME_METAS
+          .select { |g| Engine::WERKSTATT_TITLES.include?(g.title) }
           .flat_map { |g| g::GAME_PUBLISHER }
           .reject { |p| Engine::Publisher::INFO.dig(p, :hidden) }
           .compact

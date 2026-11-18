@@ -311,7 +311,7 @@ class Assets
       begin
         prealphas = Engine::GAME_META_BY_TITLE
           .values
-          .select { |g| g::DEV_STAGE == :prealpha }
+          .select { |g| g::DEV_STAGE == :prealpha && !Engine::WERKSTATT_TITLES.include?(g.title) }
           .map { |g| "public/assets/#{g.fs_name}.js" }
 
         source = (combine - prealphas).map { |file| File.read(file).to_s }.join
