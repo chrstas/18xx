@@ -460,7 +460,11 @@ module View
           h(Game::Round::Operating, game: @game)
         end
       when Engine::Round::Choices
-        h(Game::Round::Choices, game: @game)
+        if !(%w[place_token lay_tile remove_token] & current_entity_actions).empty?
+          h(Game::Map, game: @game)
+        else
+          h(Game::Round::Choices, game: @game)
+        end
       when Engine::Round::Auction,
            Engine::Round::Draft
         h(Game::Round::Auction, game: @game, user: @user)

@@ -1,0 +1,2839 @@
+# frozen_string_literal: true
+
+require 'spec_helper'
+require_relative 'spec_helpers'
+
+module Engine
+  module Game
+    module G18HN
+      describe Game do
+        include G18HNSpecHelpers
+
+        let(:players) { 3 }
+        let(:game) { build_game(players: players, id: 1) }
+        let(:a) { game.player_by_id('a') }
+        let(:b) { game.player_by_id('b') }
+        let(:c) { game.player_by_id('c') }
+
+        # process_action swallows GameError, so re-raise it
+        def act(action)
+          game.process_action(action)
+          raise game.exception if game.exception
+        end
+
+        def auction_all
+          while game.round.is_a?(Engine::Round::Auction)
+            step = game.round.active_step
+            entity = game.current_entity
+            company = step.send(:auctioning)
+            if company && step.send(:highest_bid, company)
+              act(Action::Pass.new(entity))
+            else
+              target = company || step.companies.first
+              act(Action::Bid.new(entity, company: target, price: step.min_bid(target)))
+            end
+          end
+        end
+
+        def turn_of(entity)
+          act(Action::Pass.new(game.current_entity)) until game.current_entity == entity
+        end
+
+        def par(entity, id, price)
+          share_price = game.stock_market.par_prices.find { |par_price| par_price.price == price }
+          act(Action::Par.new(entity, corporation: game.corporation_by_id(id), share_price: share_price))
+        end
+
+        def buy(entity, id)
+          corporation = game.corporation_by_id(id)
+          share = corporation.ipo_shares.select(&:buyable).min_by(&:percent)
+          act(Action::BuyShares.new(entity, shares: share, share_price: share.price, percent: share.percent))
+        end
+
+        def sell(entity, id, percent)
+          bundle = game.sellable_bundles(entity, game.corporation_by_id(id)).find { |candidate| candidate.percent == percent }
+          act(Action::SellShares.new(entity, shares: bundle.shares, share_price: bundle.price_per_share,
+                                             percent: bundle.percent))
+        end
+
+        def finish_round
+          round = game.round
+          act(Action::Pass.new(game.current_entity)) while game.round.equal?(round)
+        end
+
+        def operate(plan = {})
+          play_operating_round(plan, nil)
+        end
+
+        def advance_to_buy_train(buyer, plan = {}, lays = {})
+          play_operating_round(plan, buyer, lays)
+        end
+
+        # lays: { corporation => [[hex, tile, rotation], ...] }, one entry per operating turn
+        def operate_with_tiles(lays, plan = {}, tokens = {})
+          play_operating_round(plan, nil, lays, tokens)
+        end
+
+        # tokens: { corporation => hex }, placed in the first token step of that corporation
+        def play_operating_round(plan, buyer, lays = {}, tokens = {})
+          plan = plan.transform_values(&:dup)
+          lays = lays.transform_values(&:dup)
+          tokens = tokens.dup
+          round = game.round
+          while game.round.equal?(round)
+            step = game.round.active_step
+            entity = game.current_entity
+            return if step.is_a?(Engine::Step::BuyTrain) && entity.id == buyer
+
+            actions = step.actions(entity)
+            # FL passes its Frankfurt tile unless a test lays it
+            act(if actions.include?('lay_tile') && entity.company? && entity != game.company_by_id('FL')
+                  special_tile_action(entity)
+                elsif actions.include?('lay_tile') && (lay = lays[entity.id]&.shift)
+                  hex, tile, rotation = lay
+                  Action::LayTile.new(entity, tile: game.tiles.find { |t| t.name == tile }, hex: game.hex_by_id(hex),
+                                              rotation: rotation)
+                elsif actions.include?('place_token') && (hex = tokens.delete(entity.id))
+                  Action::PlaceToken.new(entity, city: game.hex_by_id(hex).tile.cities.first, slot: 0)
+                elsif actions.include?('run_routes')
+                  Action::RunRoutes.new(entity, routes: planned_routes(entity))
+                elsif actions.include?('dividend')
+                  Action::Dividend.new(entity, kind: 'withhold')
+                elsif actions.include?('buy_train') && (order = plan[entity.id]&.shift)
+                  order.first == :right ? right_action(entity, order.last) : train_action(entity, order)
+                elsif actions.include?('discard_train')
+                  Action::DiscardTrain.new(entity, train: entity.trains.min_by(&:price))
+                else
+                  Action::Pass.new(entity)
+                end)
+          end
+        end
+
+        # routes: { corporation => [hexes per train] }, the most expensive train first
+        let(:routes) { {} }
+
+        def planned_routes(entity)
+          trains = entity.trains.sort_by(&:price).reverse
+          planned = routes.fetch(entity.id, []).zip(trains).select(&:last).map do |hexes, train|
+            Engine::Route.new(game, game.phase, train, connection_hexes: [hexes], routes: [])
+          end
+          planned.each { |route| route.routes = planned }
+        end
+
+        def par_and_buy(player, id, price, buys)
+          turn_of(player)
+          par(player, id, price)
+          buys.times do
+            turn_of(player)
+            buy(player, id)
+          end
+        end
+
+        def pass_frankfurt
+          fl = game.company_by_id('FL')
+          act(Action::Pass.new(fl)) if game.current_entity == fl
+        end
+
+        # order: [:depot] or [seller, price], optionally with the train name, else the cheapest train
+        # an optional fourth entry names the variant to buy
+        def train_action(entity, order)
+          seller, price, name, variant = order
+          if seller == :depot
+            train = game.depot.min_depot_train
+            price = variant ? train.variants[variant][:price] : train.price
+          else
+            trains = game.corporation_by_id(seller).trains
+            train = name ? trains.find { |candidate| candidate.name == name } : trains.min_by(&:price)
+          end
+          Action::BuyTrain.new(entity, train: train, price: price, variant: variant)
+        end
+
+        def right_action(entity, id)
+          step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+          item = step.buyable_items(entity).find { |candidate| candidate.description == game.company_by_id(id).name }
+          Action::SpecialBuy.new(entity, item: item)
+        end
+
+        def offer(player, id)
+          game.sellable_bundles(player, game.corporation_by_id(id)).map { |bundle| [bundle.percent, bundle.price_per_share] }
+        end
+
+        def stock_round_one(with_wlb: true)
+          turn_of(b)
+          par(b, 'SB', 70)
+          if with_wlb
+            turn_of(a)
+            par(a, 'WLB', 70)
+          end
+          turn_of(c)
+          par(c, 'HLB', 70)
+          3.times do
+            turn_of(b)
+            buy(b, 'SB')
+            turn_of(c)
+            buy(c, 'HLB')
+          end
+          if with_wlb
+            2.times do
+              turn_of(a)
+              buy(a, 'WLB')
+            end
+          end
+          turn_of(a)
+          par(a, 'MNB', 70)
+          3.times do
+            turn_of(a)
+            buy(a, 'MNB')
+          end
+        end
+
+        def play_into_green(with_wlb: true)
+          stock_round_one(with_wlb: with_wlb)
+          finish_round
+          operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4)
+        end
+
+        def exchange_step
+          game.round.steps.find { |step| step.is_a?(G18HN::Step::Exchange) }
+        end
+
+        # A legal special tile per private, laid right after its exchange
+        let(:special_tiles) do
+          { 'BE' => ['D15', '3', 2], 'TB' => ['I4', '7', 2], 'OB' => ['M12', '7', 0], 'HB' => ['I10', '939', 0] }
+        end
+
+        def special_tile_action(company)
+          hex_id, tile_name, rotation = special_tiles[company.id]
+          tile = game.tiles.find { |t| t.name == tile_name }
+          Action::LayTile.new(company, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation)
+        end
+
+        def lay_special_tile(company)
+          act(special_tile_action(company))
+        end
+
+        # Answers every open private in the current exchange round, Decline unless planned
+        def play_exchange_round(plan = {})
+          round = game.round
+          expect(round).to be_a(G18HN::Round::Exchange)
+          while game.round.equal?(round)
+            entity = game.current_entity
+            if game.round.actions_for(entity).include?('lay_tile')
+              lay_special_tile(entity)
+            else
+              act(Action::Choose.new(entity, choice: plan.fetch(entity.id, 'Decline')))
+            end
+          end
+        end
+
+        # nobody runs, a company without a train buys one, everything else passes
+        def play_until(entity, step_class)
+          until game.current_entity == entity && game.round.active_step.is_a?(step_class)
+            current = game.current_entity
+            actions = game.round.active_step.actions(current)
+            act(if actions.include?('run_routes')
+                  Action::RunRoutes.new(current, routes: [])
+                elsif actions.include?('dividend')
+                  Action::Dividend.new(current, kind: 'withhold')
+                elsif actions.include?('buy_train') && current.trains.empty?
+                  train_action(current, [:depot])
+                else
+                  Action::Pass.new(current)
+                end)
+          end
+        end
+
+        def token_step
+          game.round.steps.find { |step| step.is_a?(G18HN::Step::Token) }
+        end
+
+        def city(hex_id)
+          game.hex_by_id(hex_id).tile.cities.first
+        end
+
+        def play_until_operating
+          until game.round.is_a?(Engine::Round::Operating)
+            game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : finish_round
+          end
+        end
+
+        def play_until_stock
+          game.round.is_a?(G18HN::Round::Exchange) ? play_exchange_round : operate until game.round.is_a?(Engine::Round::Stock)
+        end
+
+        before { auction_all }
+
+        context 'first stock round' do
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'allows no sale even of a floated corporation' do
+                first = game.current_entity
+                par(first, 'SB', 70)
+                2.times do
+                  turn_of(first)
+                  buy(first, 'SB')
+                end
+                buy(game.current_entity, 'SB')
+                turn_of(first)
+
+                sb = game.corporation_by_id('SB')
+                expect(sb).to be_floated
+                expect(game.sellable_bundles(first, sb)).to be_empty
+                expect(game.round.active_step.actions(first)).not_to include('sell_shares')
+              end
+            end
+          end
+        end
+
+        context 'second stock round' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          before do
+            expect([b, a, c].map(&:cash)).to eq([630, 670, 690])
+            expect(b.companies.map(&:id) - Game::CONCESSIONS).to contain_exactly('HB', 'BE', 'OB')
+            expect(a.companies.map(&:id) - Game::CONCESSIONS).to contain_exactly('FL', 'TB')
+            expect(c.companies.map(&:id) - Game::CONCESSIONS).to contain_exactly('BR', 'FB')
+            expect(game.current_entity).to eq(b)
+
+            par(b, 'SB', 70)
+            2.times do
+              turn_of(b)
+              buy(b, 'SB')
+            end
+            turn_of(a)
+            buy(a, 'SB')
+            finish_round
+            operate('SB' => [[:depot]])
+
+            expect(sb.share_price.price).to eq(65)
+            expect(sb).to be_operated
+            expect(a.cash).to eq(615)
+          end
+
+          it 'values unfloated shares at nothing' do
+            turn_of(c)
+            par(c, 'MNB', 100)
+            turn_of(c)
+            buy(c, 'MNB')
+            turn_of(c)
+
+            expect(mnb).not_to be_floated
+            expect(game.sellable_bundles(c, mnb)).to be_empty
+            expect(game.liquidity(c)).to eq(c.cash)
+          end
+
+          context 'with MNB floated' do
+            before do
+              turn_of(c)
+              par(c, 'MNB', 100)
+              3.times do
+                turn_of(c)
+                buy(c, 'MNB')
+              end
+            end
+
+            it 'sells one step below before MNB operates' do
+              turn_of(c)
+              expect(mnb).to be_floated
+              expect(offer(c, 'MNB')).to match_array([[10, 90], [20, 90], [30, 90]])
+              expect(game.liquidity(c) - c.cash).to eq(270)
+
+              cash = c.cash
+              sell(c, 'MNB', 10)
+              expect(c.cash - cash).to eq(90)
+              expect(mnb.share_price.price).to eq(90)
+              expect(mnb.share_price.coordinates).to eq([1, 4])
+            end
+
+            it 'counts shares one step below until MNB operates' do
+              expect(mnb.share_price.coordinates).to eq([0, 4])
+              finish_round
+              pass_frankfurt
+              expect(game.current_entity).to eq(mnb)
+              expect(game.liquidity(c) - c.cash).to eq(270)
+
+              operate('MNB' => [[:depot]])
+              expect(mnb).to be_operated
+              expect(mnb.share_price.price).to eq(90)
+              # 3 x 90 at full price now; one step lower would be 255
+              expect(game.liquidity(c) - c.cash).to eq(270)
+            end
+          end
+
+          it 'sells at full price after operating' do
+            turn_of(a)
+            cash = a.cash
+            sell(a, 'SB', 10)
+            expect(a.cash - cash).to eq(65)
+            expect(sb.share_price.price).to eq(60)
+          end
+        end
+
+        context 'exchange round' do
+          let(:wlb) { game.corporation_by_id('WLB') }
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'holds no exchange round in the yellow phase' do
+                finish_round
+
+                expect(game.round).not_to be_a(G18HN::Round::Exchange)
+                expect(game.log.map(&:message).grep(/exchange/)).to be_empty
+              end
+            end
+          end
+
+          it 'asks the owners of BE, FB, TB and OB in private order' do
+            play_into_green
+
+            expect(game.phase.name).to eq('3')
+            expect(game.round.entities.map(&:id)).to eq(%w[BE FB TB OB])
+            %w[BE FB TB OB].each do |id|
+              company = game.company_by_id(id)
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['choose'])
+              act(Action::Choose.new(company, choice: 'Decline'))
+            end
+
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.turn).to eq(2)
+          end
+
+          it 'exchanges each private for the share reserved in its own corporation' do
+            play_into_green
+            expect(exchange_step.choice_name).to eq('Exchange BE for a WLB share')
+
+            shares = %w[WLB FHB WEG SB].map { |id| game.corporation_by_id(id).reserved_shares.first }
+            play_exchange_round('BE' => 'Exchange', 'FB' => 'Exchange', 'TB' => 'Exchange', 'OB' => 'Exchange')
+
+            expect(shares.map { |share| [share.id, share.owner.id] })
+              .to eq([%w[WLB_8 b], %w[FHB_8 c], %w[WEG_8 a], %w[SB_8 b]])
+            expect(shares.map(&:buyable)).to all(be(true))
+            expect(%w[BE FB TB OB].map { |id| game.company_by_id(id) }).to all(be_closed)
+          end
+
+          it 'lets the owner exchange beyond the 60 percent limit' do
+            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 70)
+            end
+            3.times do
+              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            turn_of(b)
+            buy(b, 'WLB')
+            expect(b.percent_of(wlb)).to eq(60)
+            finish_round
+            operate('WLB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 2)
+
+            expect(game.round).to be_a(G18HN::Round::Exchange)
+            expect(game.round.active_step.actions(game.company_by_id('BE'))).to eq(['choose'])
+            play_exchange_round('BE' => 'Exchange')
+            expect(b.percent_of(wlb)).to eq(70)
+
+            expect(game.round).to be_a(Engine::Round::Stock)
+            turn_of(b)
+            expect(game.round.active_step.actions(b)).to include('pass')
+          end
+
+          it 'holds an exchange round before every round in the green phase' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            expect(game.round.round_num).to eq(1)
+            play_exchange_round
+            operate
+            expect(game.round.round_num).to eq(2)
+            play_exchange_round
+          end
+
+          it 'lets a corporation floated by the exchange operate in the next operating round' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            cash = b.cash
+            play_exchange_round('BE' => 'Exchange')
+
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB SB HLB MNB])
+            # HB and OB still pay b, BE no longer does
+            expect(b.cash - cash).to eq(20)
+          end
+
+          it 'allows no exchange in an operating round' do
+            play_into_green
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+
+            share = wlb.reserved_shares.first
+            action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
+            expect { act(action) }.to raise_error(GameError)
+            expect(share.owner).to eq(wlb)
+          end
+
+          it 'allows no exchange in a stock round' do
+            play_into_green
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Stock)
+
+            share = wlb.reserved_shares.first
+            action = Action::BuyShares.new(game.company_by_id('BE'), shares: share, percent: 10)
+            expect { act(action) }.to raise_error(GameError)
+            expect(share.owner).to eq(wlb)
+          end
+        end
+
+        context 'share limit' do
+          let(:wlb) { game.corporation_by_id('WLB') }
+
+          it 'lets a player buy from the open market beyond 60 percent, but not from the IPO' do
+            { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 70)
+            end
+            3.times do
+              { b => 'WLB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            turn_of(b)
+            buy(b, 'WLB')
+            turn_of(a)
+            buy(a, 'WLB')
+            finish_round
+            operate('WLB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            turn_of(a)
+            sell(a, 'WLB', 10)
+            turn_of(b)
+
+            step = game.round.active_step
+            expect(step.can_buy?(b, wlb.ipo_shares.find(&:buyable).to_bundle)).to be(false)
+            pool_share = game.share_pool.shares_by_corporation[wlb].first
+            allow(game).to receive(:cert_limit).and_return(game.num_certs(b))
+            expect(step.can_buy?(b, pool_share.to_bundle)).to be(false)
+            allow(game).to receive(:cert_limit).and_call_original
+            act(Action::BuyShares.new(b, shares: pool_share, share_price: pool_share.price, percent: pool_share.percent))
+            expect(b.percent_of(wlb)).to eq(70)
+          end
+        end
+
+        context 'special tile on exchange' do
+          def special_track_actions
+            %w[BE TB OB].map { |id| game.round.actions_for(game.company_by_id(id)) & ['lay_tile'] }
+          end
+
+          def private_lays
+            game.companies.reject(&:closed?).select { |company| game.round.actions_for(company).include?('lay_tile') }
+          end
+
+          def exchange_up_to(company)
+            act(Action::Choose.new(game.current_entity, choice: 'Decline')) until game.current_entity == company
+            act(Action::Choose.new(company, choice: 'Exchange'))
+          end
+
+          it 'offers BE, TB and OB no tile lay outside the exchange' do
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(special_track_actions).to all(be_empty)
+
+            stock_round_one
+            finish_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(special_track_actions).to all(be_empty)
+          end
+
+          it 'offers no private a tile lay in a stock round' do
+            expect(private_lays).to be_empty
+
+            play_into_green
+            play_exchange_round
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(private_lays).to be_empty
+          end
+
+          it 'offers HB no tile lay before brown' do
+            hb = game.company_by_id('HB')
+            stock_round_one
+            finish_round
+            expect(game.round).to be_a(Engine::Round::Operating)
+            expect(game.round.actions_for(hb)).not_to include('lay_tile')
+          end
+
+          { 'BE' => 'FB', 'TB' => 'OB', 'OB' => nil }.each do |id, following|
+            it "lets #{id} lay its tile right after the exchange" do
+              play_into_green
+              company = game.company_by_id(id)
+              owner = company.owner
+              exchange_up_to(company)
+
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['lay_tile'])
+              expect(company).not_to be_closed
+
+              cash = owner.cash
+              hex_id, tile_name, = special_tiles[id]
+              lay_special_tile(company)
+              expect(game.hex_by_id(hex_id).tile.name).to eq(tile_name)
+              expect(company).to be_closed
+              expect(owner.cash).to eq(cash)
+
+              if following
+                expect(game.current_entity).to eq(game.company_by_id(following))
+              else
+                expect(game.round).to be_a(Engine::Round::Stock)
+              end
+            end
+          end
+
+          it 'closes FB right after its exchange' do
+            play_into_green
+            fb = game.company_by_id('FB')
+            exchange_up_to(fb)
+
+            expect(fb).to be_closed
+            expect(game.current_entity).to eq(game.company_by_id('TB'))
+          end
+        end
+
+        context 'forced exchange at the end of an operating round' do
+          # WLB builds Korbach and Bad Wildungen, SB builds Darmstadt and one of the three Odenwald hexes
+          before do
+            turn_of(b)
+            par(b, 'SB', 70)
+            turn_of(c)
+            par(c, 'HLB', 70)
+            turn_of(a)
+            par(a, 'WLB', 70)
+            3.times do
+              turn_of(b)
+              buy(b, 'SB')
+              turn_of(c)
+              buy(c, 'HLB')
+              turn_of(a)
+              buy(a, 'WLB')
+            end
+            expect([a, b, c].map(&:cash)).to eq([320, 280, 340])
+            finish_round
+
+            operate_with_tiles({ 'WLB' => [['C14', '5', 4]], 'SB' => [['L11', '927', 1]] },
+                               { 'SB' => [[:depot]], 'HLB' => [[:depot]], 'WLB' => [[:depot]] })
+            finish_round
+            @wlb_cash = game.corporation_by_id('WLB').cash
+            operate_with_tiles({ 'WLB' => [['D15', '3', 2]], 'SB' => [['M12', '7', 1]] })
+          end
+
+          it 'exchanges BE once others built D15' do
+            share = game.share_by_id('WLB_8')
+
+            expect(game.phase.name).to eq('2')
+            expect(game.round).to be_a(Engine::Round::Stock)
+            expect(game.turn).to eq(3)
+            expect(game.hex_by_id('D15').tile.name).to eq('3')
+            expect(@wlb_cash - game.corporation_by_id('WLB').cash).to eq(60)
+            expect(game.company_by_id('BE')).to be_closed
+            expect(share.owner).to eq(b)
+            expect(share.buyable).to be(true)
+            expect(game.log.map(&:message)).to include('Baugesellschaft Edertalsperre must be exchanged')
+          end
+
+          it 'keeps OB while one of its hexes is still unbuilt' do
+            expect(game.hex_by_id('M12').tile.name).to eq('7')
+            expect(game.company_by_id('OB')).not_to be_closed
+            expect(game.corporation_by_id('SB').reserved_shares.map(&:id)).to eq(['SB_8'])
+          end
+        end
+
+        context 'Taunus hexes built by WEG' do
+          let(:tb) { game.company_by_id('TB') }
+
+          it 'exchanges TB at the end of the operating round in which the last Taunus hex is built' do
+            owner = tb.owner
+            par_and_buy(b, 'WEG', 70, 3)
+            finish_round
+            operate_with_tiles({ 'WEG' => [['J9', '5', 1]] }, { 'WEG' => [[:depot]] })
+            [['I8', '58', 5], ['I6', '9', 1]].each do |lay|
+              finish_round
+              operate_with_tiles('WEG' => [lay])
+            end
+            expect(tb).not_to be_closed
+
+            finish_round
+            operate_with_tiles('WEG' => [['I4', '7', 3]])
+            share = game.share_by_id('WEG_8')
+            expect(game.phase.name).to eq('2')
+            expect(game.log.map(&:message)).to include('Taunusbahn must be exchanged')
+            expect(tb).to be_closed
+            expect(share.owner).to eq(owner)
+            expect(share.buyable).to be(true)
+          end
+        end
+
+        context 'Hanau station of FHB' do
+          let(:fhb) { game.corporation_by_id('FHB') }
+          let(:hanau) { game.hex_by_id('J15').tile.cities.first }
+
+          it 'keeps the Hanau slot and the second free station for the FB exchange' do
+            expect(hanau.reserved_by?(fhb)).to be(true)
+            expect(hanau.tokenable?(game.corporation_by_id('SB'), free: true)).to be(false)
+
+            stock_round_one
+            finish_round
+            expect(token_step.available_tokens(fhb).map(&:type)).to all(eq(:normal))
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'refuses the Hanau station placed by hand outside Hanau' do
+                par_and_buy(game.players.first, 'FHB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'FHB' => [['G20', '5', 1]] }, { 'FHB' => [[:depot]] })
+                [['F19', '9', 2], ['E18', '5', 4]].each do |lay|
+                  finish_round
+                  operate_with_tiles('FHB' => [lay])
+                end
+                finish_round
+                act(Action::Pass.new(game.current_entity)) until game.round.active_step.is_a?(Engine::Step::Token)
+                bad_hersfeld = game.hex_by_id('E18').tile.cities.first
+                expect(game.round.active_step.available_hex(fhb, bad_hersfeld.hex)).to be_truthy
+                cash = fhb.cash
+
+                action = Action::PlaceToken.new(fhb, city: bad_hersfeld, slot: 0, token_type: 'hanau')
+                expect { act(action) }.to raise_error(GameError, 'FHB cannot place its Hanau station by hand')
+                expect(fhb.cash).to eq(cash)
+                expect(fhb.find_token_by_type(:hanau)).not_to be_nil
+                expect(bad_hersfeld.tokens.compact).to be_empty
+              end
+            end
+          end
+
+          it 'keeps a normal FHB station out of Hanau until FB is exchanged' do
+            turn_of(c)
+            par(c, 'FHB', 70)
+            3.times do
+              turn_of(c)
+              buy(c, 'FHB')
+            end
+            finish_round
+            operate_with_tiles({ 'FHB' => [['G20', '5', 0]] }, { 'FHB' => [[:depot]] })
+            [['H19', '9', 0], ['I18', '8', 1], ['I16', '58', 4]].each do |lay|
+              finish_round
+              operate_with_tiles('FHB' => [lay])
+            end
+            finish_round
+            pass_frankfurt
+            tile = game.tiles.find { |t| t.name == '5' }
+            act(Action::LayTile.new(fhb, tile: tile, hex: game.hex_by_id('J15'), rotation: 2))
+
+            # Hanau is the only city in reach, so the token step does not open at all
+            expect(game.round.active_step).not_to be_a(G18HN::Step::Token)
+            expect(token_step.available_hex(fhb, game.hex_by_id('J15'))).to be_nil
+            expect { act(Action::PlaceToken.new(fhb, city: hanau, slot: 0)) }.to raise_error(GameError)
+          end
+
+          it 'places the station when FB is exchanged, before FHB is founded' do
+            play_into_green
+            play_exchange_round('FB' => 'Exchange')
+
+            expect(hanau.tokens.compact.map(&:corporation)).to eq([fhb])
+            expect(hanau.reserved_by?(fhb)).to be(false)
+            expect(fhb.ipoed).to be_falsey
+
+            turn_of(c)
+            par(c, 'FHB', 70)
+            2.times do
+              turn_of(c)
+              buy(c, 'FHB')
+            end
+            finish_round
+            play_exchange_round
+            operate('FHB' => [[:depot]])
+            expect(game.hex_by_id('G20').tile.cities.flat_map(&:tokens).compact.map(&:corporation)).to include(fhb)
+          end
+        end
+
+        context 'forced exchange when brown starts' do
+          def dividend_step
+            game.round.steps.find { |step| step.is_a?(Engine::Step::Dividend) }
+          end
+
+          # WLB's tiles in the operating round after its float and in the one in which MNB buys the first 5 train
+          let(:wlb_lays) { [[['C14', '5', 4]], []] }
+
+          let(:routes) do
+            { 'SB' => [%w[L11 M10 N11]], 'MNB' => [%w[N11 O10], %w[N11 M10 L11]], 'HLB' => [%w[K8 K6 K4]] }
+          end
+
+          # Leaves BE, FB, TB and OB open until MNB buys the first 5 train
+          def play_into_brown
+            { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 100)
+            end
+            3.times do
+              { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            finish_round
+
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]], 'HLB' => [['K6', '9', 1]] },
+                               { 'SB' => [[:depot]] * 3, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3 })
+            play_until_operating
+            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 4]] }, { 'SB' => [[:depot]] })
+            12.times do
+              play_until_operating
+              operate
+            end
+            expect([a, b, c].map(&:cash)).to eq([380, 620, 540])
+            play_until_stock
+
+            par_and_buy(b, 'WLB', 70, 3)
+            par_and_buy(c, 'FHB', 70, 3)
+            par_and_buy(a, 'WEG', 70, 2)
+            finish_round
+            play_exchange_round
+            operate_with_tiles({ 'WLB' => wlb_lays.first },
+                               {
+                                 'WLB' => [['SB', 1]],
+                                 'FHB' => [['HLB', 1], [:depot]],
+                                 'SB' => [[:depot]],
+                                 'MNB' => [[:depot]],
+                                 'HLB' => [[:depot]] * 2,
+                               })
+            play_until_operating
+            operate('WLB' => [['SB', 1, '3']], 'SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            play_until_operating
+            operate('SB' => [[:depot]], 'MNB' => [[:depot]])
+            play_until_operating
+            advance_to_buy_train('MNB', { 'FHB' => [['MNB', 1]] }, { 'WLB' => wlb_lays.last })
+            act(train_action(game.current_entity, [:depot]))
+          end
+
+          before { play_into_brown }
+
+          it 'exchanges the four remaining privates' do
+            expect(game.phase.name).to eq('5')
+            expect(game.round.exchanged_companies.map(&:id)).to eq(%w[BE TB OB HB])
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB FHB SB MNB HLB])
+
+            shares = %w[WLB_8 FHB_8 WEG_8 SB_8].map { |id| game.share_by_id(id) }
+            expect(shares.map { |share| share.owner.id }).to eq(%w[b c a b])
+            expect(shares.map(&:buyable)).to all(be(true))
+            expect(game.company_by_id('FB')).to be_closed
+            expect(game.hex_by_id('J15').tile.cities.first.tokens.compact.map(&:corporation))
+              .to include(game.corporation_by_id('FHB'))
+          end
+
+          it 'makes BE, TB and OB lay their special tile in turn before they close' do
+            cash = [a, b].map(&:cash)
+            %w[BE TB OB].each do |id|
+              company = game.company_by_id(id)
+              expect(game.current_entity).to eq(company)
+              expect(game.round.active_step.actions(company)).to eq(['lay_tile'])
+              lay_special_tile(company)
+              expect(company).to be_closed
+            end
+
+            expect([a, b].map(&:cash)).to eq(cash)
+            expect(game.current_entity).to eq(game.company_by_id('HB'))
+          end
+
+          context 'with BE, TB and OB done' do
+            let(:hb) { game.company_by_id('HB') }
+
+            before { %w[BE TB OB].each { |id| lay_special_tile(game.company_by_id(id)) } }
+
+            it 'lets HB lay the brown Bad Homburg tile for free, then closes it' do
+              owner = hb.owner
+              cash = owner.cash
+              expect(game.round.active_step.actions(hb)).to eq(%w[lay_tile pass])
+              lay_special_tile(hb)
+              expect(game.hex_by_id('I10').tile.name).to eq('939')
+              expect(hb).to be_closed
+              expect(owner.cash).to eq(cash)
+              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            end
+
+            it 'lets HB pass and closes it' do
+              act(Action::Pass.new(hb))
+              expect(game.hex_by_id('I10').tile.color).to eq(:green)
+              expect(hb).to be_closed
+              expect(game.round.active_step).not_to be_a(G18HN::Step::ExchangeTrack)
+            end
+          end
+
+          context 'with D15 built in the same operating round' do
+            let(:wlb_lays) { [[['C14', '5', 4]], [['D15', '3', 2]]] }
+
+            it 'closes BE without its special tile' do
+              company = game.company_by_id('BE')
+              expect(game.hex_by_id('D15').tile.name).to eq('3')
+              expect(game.share_by_id('WLB_8').owner).to eq(b)
+              expect(company).to be_closed
+              expect(game.round.exchanged_companies).not_to include(company)
+              expect(game.current_entity).to eq(game.company_by_id('TB'))
+
+              lay_special_tile(game.company_by_id('TB'))
+              lay_special_tile(game.company_by_id('OB'))
+              expect(game.current_entity).to eq(game.company_by_id('HB'))
+            end
+          end
+
+          it 'pays the full capital on float only to a company founded after brown starts' do
+            expect(game.corporation_by_id('WEG').cash).to eq(350)
+
+            operate
+            play_until_stock
+            par_and_buy(b, 'LTB', 70, 3)
+            expect(game.corporation_by_id('LTB').cash).to eq(700)
+          end
+
+          it 'lets WEG operate only from the next operating round' do
+            weg = game.corporation_by_id('WEG')
+            expect(weg).to be_floated
+            expect(game.round.entities).not_to include(weg)
+
+            operate
+            play_until_operating
+            expect(game.round.entities.first.id).to eq('WEG')
+          end
+
+          it 'lets BE pass its special tile once no tile fits' do
+            be = game.company_by_id('BE')
+            expect(game.current_entity).to eq(be)
+            expect(game.round.active_step.actions(be)).to eq(['lay_tile'])
+
+            # set state: the real flow empties the supply only once all 18 yellow town tiles are laid
+            game.tiles.reject! { |tile| %w[3 4 58].include?(tile.name) }
+            expect(game.round.active_step.actions(be)).to eq(%w[lay_tile pass])
+            act(Action::Pass.new(be))
+            expect(be).to be_closed
+          end
+
+          it 'pays no dividend on the exchanged shares in this operating round' do
+            fhb = game.corporation_by_id('FHB')
+            sb = game.corporation_by_id('SB')
+            expect(c.num_shares_of(fhb)).to eq(6)
+            expect(dividend_step.dividends_for_entity(fhb, c, 10)).to eq(50)
+            expect(dividend_step.dividends_for_entity(sb, b, 10)).to eq(50)
+
+            operate
+            play_until_operating
+            expect(dividend_step.dividends_for_entity(fhb, c, 10)).to eq(60)
+          end
+        end
+
+        context 'special tile after a voluntary exchange' do
+          let(:be) { game.company_by_id('BE') }
+
+          it 'lets BE pass once no tile fits' do
+            play_into_green
+            act(Action::Choose.new(game.current_entity, choice: 'Decline')) until game.current_entity == be
+            act(Action::Choose.new(be, choice: 'Exchange'))
+            expect(game.current_entity).to eq(be)
+            expect(game.round.active_step.actions(be)).to eq(['lay_tile'])
+
+            # set state: the real flow empties the supply only once all 18 yellow town tiles are laid
+            game.tiles.reject! { |tile| %w[3 4 58].include?(tile.name) }
+            expect(game.round.active_step.actions(be)).to eq(%w[lay_tile pass])
+            act(Action::Pass.new(be))
+            expect(be).to be_closed
+          end
+        end
+
+        context 'exchanged reserve share' do
+          let(:wlb) { game.corporation_by_id('WLB') }
+
+          it 'goes to the pool as ordinary stock' do
+            play_into_green
+            share = wlb.reserved_shares.first
+            expect(share.id).to eq('WLB_8')
+            play_exchange_round('BE' => 'Exchange')
+            expect(share.buyable).to be(true)
+            expect(wlb).to be_floated
+
+            finish_round
+            play_exchange_round
+            operate('WLB' => [[:depot]])
+            expect(wlb).to be_operated
+            play_exchange_round
+            operate
+            play_exchange_round
+
+            turn_of(b)
+            sell(b, 'WLB', 10)
+            expect(share.owner).to eq(game.share_pool)
+            turn_of(c)
+            act(Action::BuyShares.new(c, shares: share, share_price: share.price, percent: 10))
+            expect(share.owner).to eq(c)
+          end
+        end
+
+        context 'obligated track route' do
+          def found(player, id)
+            turn_of(player)
+            par(player, id, 70)
+            3.times do
+              turn_of(player)
+              buy(player, id)
+            end
+            finish_round
+          end
+
+          # one tile per operating round; the first round also buys the forced train
+          def lay_in_turn(id, lays)
+            lays.each_with_index do |lay, index|
+              finish_round unless index.zero?
+              operate_with_tiles({ id => [lay] }, index.zero? ? { id => [[:depot]] } : {})
+            end
+          end
+
+          def met
+            game.corporations.select { |corporation| game.obligation_met?(corporation) }.map(&:id)
+          end
+
+          it 'completes FHB from Fulda to Bad Hersfeld with the last tile' do
+            found(c, 'FHB')
+            lay_in_turn('FHB', [['G20', '5', 1], ['F19', '9', 2]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('FHB' => [['E18', '5', 4]])
+            expect(met).to eq(['FHB'])
+            expect(game.log.map(&:message)).to include('FHB completes its obligated track route')
+          end
+
+          it 'pays half the capital on float and the other half with the obligation' do
+            found(c, 'FHB')
+            fhb = game.corporation_by_id('FHB')
+            expect(fhb.cash).to eq(350)
+
+            lay_in_turn('FHB', [['G20', '5', 1], ['F19', '9', 2]])
+            finish_round
+            # plus 350 from the obligation, minus 20 for the water at Bad Hersfeld
+            expect { operate_with_tiles('FHB' => [['E18', '5', 4]]) }.to change(fhb, :cash).by(330)
+          end
+
+          it 'completes HLB from the Rheinland through Bingen and Mainz to the Pfalz' do
+            found(c, 'HLB')
+            lay_in_turn('HLB', [['K8', '920', 0], ['K6', '9', 1], ['K4', '6', 2], ['L7', '9', 0]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('HLB' => [['M6', '4', 0]])
+            expect(met).to eq(['HLB'])
+            expect(game.log.map(&:message).count('HLB receives 350M')).to eq(2)
+          end
+
+          context 'with HLB one tile short of its route' do
+            let(:hlb) { game.corporation_by_id('HLB') }
+
+            def hlb_legs_connected?
+              stops = Game::OBLIGATIONS['HLB'].map { |ids| ids.flat_map { |id| game.hex_by_id(id).tile.nodes } }
+              game.legs_connected?(stops, hlb, game.graph_skip_paths(hlb))
+            end
+
+            before do
+              found(c, 'HLB')
+              lay_in_turn('HLB', [['K8', '920', 0], ['K6', '9', 1], ['K4', '6', 2], ['L7', '9', 0]])
+              finish_round
+            end
+
+            it 'needs every leg connected before it searches a route' do
+              expect(hlb_legs_connected?).to be(false)
+              operate_with_tiles('HLB' => [['M6', '4', 0]])
+              expect(hlb_legs_connected?).to be(true)
+            end
+
+            it 'leaves the obligation open when the search reaches its walk limit' do
+              stub_const("#{Game}::OBLIGATION_WALK_LIMIT", 10)
+              operate_with_tiles('HLB' => [['M6', '4', 0]])
+              expect(met).to be_empty
+            end
+          end
+
+          it 'completes SB once the three Odenwald hexes are built' do
+            found(b, 'SB')
+            lay_in_turn('SB', [['L11', '927', 1], ['M12', '9', 2], ['N13', '58', 0]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('SB' => [['O12', '3', 2]])
+            expect(met).to eq(['SB'])
+          end
+
+          it 'pays the full capital on float when others completed the obligation before' do
+            sb = game.corporation_by_id('SB')
+            par_and_buy(a, 'MNB', 70, 3)
+            finish_round
+            # MNB builds all three Odenwald hexes from Mannheim before SB is founded
+            lay_in_turn('MNB', [['N11', '5', 4], ['N13', '3', 1], ['M12', '7', 5], ['O12', '3', 1]])
+            messages = game.log.map(&:message)
+            expect(met).to eq(['SB'])
+            expect(messages).to include('SB completes its obligated track route')
+            expect(messages.grep(/SB receives/)).to be_empty
+            expect(sb).not_to be_floated
+
+            par_and_buy(b, 'SB', 70, 3)
+            expect(sb.cash).to eq(700)
+            expect(game.log.map(&:message)).to include('SB receives 700M')
+          end
+
+          it 'completes SB with the three Odenwald hexes built, connected or not' do
+            par_and_buy(a, 'MNB', 70, 3)
+            par_and_buy(b, 'SB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]], 'SB' => [['L11', '927', 1]] },
+                               { 'MNB' => [[:depot]], 'SB' => [[:depot]] })
+            finish_round
+            operate_with_tiles('MNB' => [['N13', '3', 1]], 'SB' => [['M12', '7', 1]])
+            expect(met).to be_empty
+
+            finish_round
+            operate_with_tiles('MNB' => [['O12', '3', 1]])
+            # M12 joins neither N13 nor the Mannheim side, so no route runs through all three hexes
+            m12 = game.hex_by_id('M12')
+            expect(m12.tile.exits.map { |edge| m12.neighbors[edge].id }).to contain_exactly('M10', 'L11')
+            expect(met).to eq(['SB'])
+          end
+
+          it 'needs one route through the stops in printed order' do
+            found(a, 'FWN')
+            # Kassel and Bad Karlshafen hang on two branches from Fritzlar, a route would pass Fritzlar twice
+            lay_in_turn('FWN', [['C18', '927', 0], ['D17', '3', 2], ['C16', '8', 3], ['B17', '4', 0], ['A18', '3', 5]])
+            expect(met).to be_empty
+          end
+
+          context "with a city full of other companies' stations" do
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'completes VB at Gießen although MWB holds its only station' do
+                  mwb = game.corporation_by_id('MWB')
+                  vb = game.corporation_by_id('VB')
+                  par_and_buy(game.players[0], 'MWB', 70, 3)
+                  par_and_buy(game.players[1], 'VB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'MWB' => [['F13', '57', 0]], 'VB' => [['F17', '5', 5]] },
+                                     { 'MWB' => [[:depot]], 'VB' => [[:depot]] })
+                  finish_round
+                  play_until(mwb, Engine::Step::Track)
+                  act(right_action(mwb, 'HDC'))
+                  lay(mwb, 'G12', '927', 0)
+                  operate_with_tiles({ 'VB' => [['G16', '8', 1]] }, {}, { 'MWB' => 'G12' })
+                  expect(game.hex_by_id('G12').tile.cities.first.blocks?(vb)).to be(true)
+                  expect(met).to be_empty
+
+                  finish_round
+                  expect { operate_with_tiles('VB' => [['G14', '4', 1]]) }.to change(vb, :cash).by(350)
+                  expect(met).to eq(['VB'])
+                end
+
+                # SB's home station fills Darmstadt, which MNB has to pass on its way to Frankfurt
+                it 'keeps MNB open while a city full of SB on the way blocks it' do
+                  mnb = game.corporation_by_id('MNB')
+                  par_and_buy(game.players[0], 'SB', 70, 3)
+                  par_and_buy(game.players[1], 'MNB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'FL' => [['J11', '921', 0]], 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]] },
+                                     { 'SB' => [[:depot]], 'MNB' => [[:depot]] })
+                  finish_round
+                  operate_with_tiles('SB' => [['K12', '8', 0]], 'MNB' => [['M10', '8', 3]])
+                  expect(%w[J11 K12 L11 M10 N11].map { |id| game.hex_by_id(id).tile.name }).to eq(%w[921 8 927 8 6])
+                  expect(game.hex_by_id('L11').tile.cities.first.blocks?(mnb)).to be(true)
+                  expect(met).to be_empty
+                end
+              end
+            end
+          end
+
+          context 'with FWN building towards Bad Hersfeld' do
+            before do
+              turn_of(c)
+              par(c, 'FHB', 70)
+              turn_of(a)
+              par(a, 'FWN', 70)
+              3.times do
+                turn_of(c)
+                buy(c, 'FHB')
+                turn_of(a)
+                buy(a, 'FWN')
+              end
+              finish_round
+              operate_with_tiles({ 'FHB' => [['G20', '5', 1]], 'FWN' => [['C18', '927', 0]] },
+                                 { 'FHB' => [[:depot]], 'FWN' => [[:depot]] })
+              finish_round
+            end
+
+            it 'completes FHB when FWN lays the last tile' do
+              operate_with_tiles('FHB' => [['F19', '9', 2]], 'FWN' => [['D17', '58', 3]])
+              expect(met).to be_empty
+              finish_round
+              operate_with_tiles('FWN' => [['E18', '57', 2]])
+              expect(met).to eq(['FHB'])
+            end
+
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'checks the obligation after the tile is laid and before the station is placed' do
+                  fhb = game.corporation_by_id('FHB')
+                  operate_with_tiles('FHB' => [['F19', '9', 2]], 'FWN' => [['D17', '58', 3]])
+                  finish_round
+                  log_size = game.log.to_a.size
+
+                  expect { operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' }) }
+                    .to change(fhb, :cash).by(350)
+                  expect(met).to eq(['FHB'])
+                  expect(game.hex_by_id('E18').tile.cities.first.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
+                  messages = game.log.map(&:message).drop(log_size)
+                  completes = messages.index('FHB completes its obligated track route')
+                  token = messages.index { |message| message.start_with?('FWN places a token on E18') }
+                  expect(completes).to be < token
+                end
+
+                it 'completes FHB at Bad Hersfeld although FWN holds its only station' do
+                  fhb = game.corporation_by_id('FHB')
+                  operate_with_tiles('FWN' => [['D17', '58', 3]])
+                  finish_round
+                  operate_with_tiles({ 'FWN' => [['E18', '57', 2]] }, {}, { 'FWN' => 'E18' })
+                  bad_hersfeld = game.hex_by_id('E18').tile.cities.first
+                  expect(bad_hersfeld.tokens.compact.map(&:corporation).map(&:id)).to eq(['FWN'])
+                  expect(bad_hersfeld.blocks?(fhb)).to be(true)
+                  finish_round
+                  # plus 350 from the obligation, minus 20 for the water at F19
+                  expect { operate_with_tiles('FHB' => [['F19', '9', 2]]) }.to change(fhb, :cash).by(330)
+                  expect(met).to eq(['FHB'])
+                end
+              end
+            end
+          end
+        end
+
+        context 'Frankfurt tile at the start of an operating round' do
+          let(:fl) { game.company_by_id('FL') }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def first_operator
+            game.round.entities.first
+          end
+
+          def current_or_log
+            messages = game.log.map(&:message)
+            messages.drop(messages.rindex { |message| message.start_with?('-- Operating Round') })
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'asks the owner of FL before the first company operates' do
+                first = game.current_entity
+                par(first, 'SB', 70)
+                3.times do
+                  turn_of(first)
+                  buy(first, 'SB')
+                end
+                finish_round
+
+                expect(game.round).to be_a(Engine::Round::Operating)
+                expect(game.current_entity).to eq(fl)
+                expect(game.round.active_step.actions(fl)).to eq(%w[lay_tile pass])
+                expect(game.corporation_by_id('SB')).not_to be_operated
+                expect(current_or_log.grep(/ operates /)).to be_empty
+
+                act(Action::Pass.new(fl))
+                expect(current_or_log.grep(/ operates SB/)).not_to be_empty
+              end
+            end
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players and green starting mid-round" do
+              let(:players) { count }
+
+              it 'asks FL only at the start of an operating round' do
+                founders = game.players.first(3)
+                founders.zip(%w[SB HLB MNB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+                finish_round
+                lay_frankfurt('J11', '921')
+                operate('SB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 2, 'MNB' => [[:depot]] * 2)
+                finish_round
+                lay_frankfurt('J13', '922')
+                operate('SB' => [[:depot]] * 2, 'HLB' => [[:depot]])
+                finish_round
+
+                expect(game.phase.name).to eq('2')
+                expect(game.current_entity).to eq(first_operator)
+
+                log_size = game.log.to_a.size
+                operate('MNB' => [[:depot]])
+                expect(game.phase.name).to eq('3')
+                expect(game.log.map(&:message).drop(log_size).grep(/Frankfurt tile|Frankfurter Lokalbahn/)).to be_empty
+                expect(fl.revenue).to eq(20)
+                expect(game.hex_by_id('J11').tile.name).to eq('921')
+
+                play_exchange_round
+                finish_round
+                play_exchange_round
+                expect(game.current_entity).to eq(fl)
+                expect(game.round.active_step.actions(fl)).to eq(%w[lay_tile pass])
+                lay_frankfurt('J11', '923')
+                expect(fl.revenue).to eq(30)
+              end
+            end
+          end
+
+          context 'in the yellow phase' do
+            before do
+              stock_round_one
+              finish_round
+            end
+
+            it 'pays the raised income in the same operating round' do
+              owner = fl.owner
+              cash = owner.cash
+              lay_frankfurt('J11', '921')
+
+              expect(game.hex_by_id('J11').tile.name).to eq('921')
+              expect(fl.revenue).to eq(10)
+              expect(owner.cash - cash).to eq(10)
+            end
+
+            it 'pays the raised income on top after the second tile' do
+              lay_frankfurt('J11', '921')
+              operate('SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+              finish_round
+              owner = fl.owner
+              cash = owner.cash
+              lay_frankfurt('J13', '922')
+              expect(fl.revenue).to eq(20)
+              # 10 at the start of the round plus 10 after the lay
+              expect(current_or_log.count("#{owner.name} collects 10M from #{fl.name}")).to eq(2)
+              expect(owner.cash - cash).to eq(10)
+            end
+
+            it 'allows one tile per operating round' do
+              lay_frankfurt('J11', '921')
+
+              expect { lay_frankfurt('J13', '922') }.to raise_error(GameError)
+              expect(game.hex_by_id('J13').tile.color).to eq(:white)
+              expect(game.round.actions_for(fl)).not_to include('lay_tile')
+            end
+
+            it 'hands over to the first company when FL passes' do
+              act(Action::Pass.new(fl))
+
+              expect(fl.revenue).to eq(0)
+              expect(game.current_entity).to eq(first_operator)
+              expect(game.round.actions_for(fl)).not_to include('lay_tile')
+            end
+
+            it 'does not ask when no Frankfurt tile fits' do
+              lay_frankfurt('J11', '921')
+              operate('SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+              finish_round
+              lay_frankfurt('J13', '922')
+              operate
+              finish_round
+
+              expect(game.phase.name).to eq('2')
+              expect(game.round).to be_a(Engine::Round::Operating)
+              expect(game.current_entity).to eq(first_operator)
+            end
+
+            it 'keeps FL on turn after a chat message' do
+              act(Action::Message.new(fl.owner, message: 'thinking'))
+
+              expect(game.current_entity).to eq(fl)
+              lay_frankfurt('J11', '921')
+              expect(fl.revenue).to eq(10)
+            end
+          end
+
+          it 'upgrades a Frankfurt tile to green at the start of an operating round' do
+            stock_round_one
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate('SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4)
+            play_exchange_round
+            finish_round
+            play_exchange_round
+
+            expect(game.phase.name).to eq('3')
+            expect(game.current_entity).to eq(fl)
+            lay_frankfurt('J11', '923')
+            expect(game.hex_by_id('J11').tile.name).to eq('923')
+            expect(fl.revenue).to eq(20)
+          end
+        end
+
+        context 'Frankfurt local line' do
+          let(:players) { 4 }
+          let(:weg) { game.corporation_by_id('WEG') }
+          let(:fl) { game.company_by_id('FL') }
+          let(:local_line) { [%w[J9 J11], %w[J11 J13]] }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def weg_route(connection_hexes, train = weg.trains.max_by(&:price))
+            single_route(train, connection_hexes)
+          end
+
+          def planned_routes(entity)
+            return super if entity != weg || !@weg_hexes
+
+            [weg_route(@weg_hexes)]
+          end
+
+          before do
+            # WEG is founded last and operates last
+            game.players.first(4).zip(%w[SB HLB MNB WEG]).each do |player, corporation|
+              par_and_buy(player, corporation, 70, 3)
+            end
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate_with_tiles({ 'WEG' => [['J9', '57', 1]] },
+                               { 'SB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 2, 'MNB' => [[:depot]] * 2, 'WEG' => [[:depot]] })
+            finish_round
+            lay_frankfurt('J13', '922')
+          end
+
+          # OR 2: SB and HLB buy the last 2 trains, WEG runs to Frankfurt, buys the right and the first 3 train
+          def operate_second_round
+            operate('SB' => [[:depot]], 'HLB' => [[:depot]], 'WEG' => [[:right, 'FC'], [:depot]])
+          end
+
+          it 'refuses the local line as a route too long, so the auto router stops extending it' do
+            expect { weg_route(local_line).revenue }
+              .to raise_error(Engine::RouteTooLong, 'WEG needs the Frankfurt transit right to use the local line')
+          end
+
+          it 'refuses the local line without the Frankfurt right, but not the route to Frankfurt' do
+            expect { weg_route(local_line).revenue }
+              .to raise_error(GameError, 'WEG needs the Frankfurt transit right to use the local line')
+
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            expect(game.log.map(&:message).grep(/WEG runs/)).not_to be_empty
+          end
+
+          it 'sells the Frankfurt right for 40 to the owner of FL' do
+            owner = fl.owner
+            cash = [weg.cash, owner.cash]
+            revenue = weg_route([%w[J9 J11]]).revenue
+            price = game.depot.upcoming.find { |train| train.name == '3' }.price
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+
+            expect(game.log.map(&:message)).to include("WEG buys the Frankfurt Concession from #{owner.name} for 40M")
+            expect(weg.trains.map(&:name)).to include('3')
+            expect(weg.cash).to eq(cash.first + revenue - 40 - price)
+            expect(owner.cash - cash.last).to eq(40)
+          end
+
+          # OR 3 starts with FL; J11 and J13 still carry their yellow tiles
+          def play_to_third_round
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            play_exchange_round
+            finish_round
+            play_exchange_round
+          end
+
+          # three players cannot float four companies at 350 each
+          [4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'counts Frankfurt once with the local line and pays its higher value' do
+                play_to_third_round
+                # J9 pays 20, both yellow Frankfurt stations pay 30
+                expect(weg_route(local_line).revenue).to eq(50)
+
+                lay_frankfurt('J11', '923')
+                expect(weg_route(local_line).revenue).to eq(70)
+              end
+
+              it 'lets a 2 train run through both Frankfurt stations only with the right' do
+                two = weg.trains.find { |train| train.name == '2' }
+                expect { weg_route(local_line, two).revenue }
+                  .to raise_error(GameError, 'WEG needs the Frankfurt transit right to use the local line')
+
+                play_to_third_round
+                expect(weg_route(local_line, two).revenue).to eq(50)
+              end
+
+              it 'counts a route to Frankfurt without the local line as before' do
+                expect(weg_route([%w[J9 J11]]).revenue).to eq(50)
+                play_to_third_round
+                expect(weg_route([%w[J9 J11]]).revenue).to eq(50)
+              end
+            end
+          end
+
+          it 'accepts the local line once the Frankfurt right is bought' do
+            @weg_hexes = [%w[J9 J11]]
+            operate_second_round
+            play_exchange_round
+            finish_round
+            play_exchange_round
+
+            @weg_hexes = local_line
+            operate
+            expect(game.log.map(&:message).grep(/WEG runs a 3 train/)).not_to be_empty
+          end
+        end
+
+        context 'Frankfurt reached twice on broad gauge' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fl) { game.company_by_id('FL') }
+
+          def lay_frankfurt(hex_id, tile_name)
+            tile = game.tiles.find { |t| t.name == tile_name }
+            act(Action::LayTile.new(fl, tile: tile, hex: game.hex_by_id(hex_id), rotation: 0))
+          end
+
+          def sb_route(connection_hexes)
+            single_route(sb.trains.max_by(&:price), connection_hexes)
+          end
+
+          def planned_routes(entity)
+            return super if entity != sb || !@sb_hexes
+
+            [sb_route(@sb_hexes)]
+          end
+
+          # SB joins J11 and J13 on broad gauge through K12 and its station at K14, then buys a 3 train
+          def build_detour
+            game.players.cycle.first(3).zip(%w[SB HLB MNB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+            finish_round
+            lay_frankfurt('J11', '921')
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]] },
+                               { 'SB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 3 })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            lay_frankfurt('J13', '922')
+            operate_with_tiles('SB' => [['L13', '8', 1]])
+            play_exchange_round
+            lay_frankfurt('J13', '924')
+            @sb_hexes = [%w[L11 L13 K14]]
+            operate_with_tiles({ 'SB' => [['K14', '5', 0]] }, {}, { 'SB' => 'K14' })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+            operate_with_tiles('SB' => [['K12', '8', 2]])
+            play_exchange_round
+            operate_with_tiles({ 'SB' => [['K14', '444', 0]] }, { 'SB' => [[:depot]] })
+            play_exchange_round
+            finish_round
+            play_exchange_round
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'refuses a route through both Frankfurt stations without the local line' do
+                build_detour
+                route = sb_route([%w[J11 K12 K14], %w[K14 J13]])
+                expect(route.paths.map(&:track).uniq).to eq([:broad])
+                expect { route.revenue }.to raise_error(GameError, 'Cannot use group Frankfurt more than once')
+              end
+            end
+          end
+        end
+
+        context 'station tokens' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+          let(:sb) { game.corporation_by_id('SB') }
+
+          def reached?(entity, node)
+            game.graph_for_entity(entity).connected_nodes(entity).key?(node)
+          end
+
+          [3, 4, 5].each do |count|
+            context "with #{count} players" do
+              let(:players) { count }
+
+              it 'keeps the home of an unfounded company free' do
+                par_and_buy(game.players.first, 'SB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'SB' => [['L11', '927', 2]] }, { 'SB' => [[:depot]] })
+                finish_round
+                play_until(sb, Engine::Step::Track)
+                lay(sb, 'K10', '3', 4)
+                build_bridge(sb, 'Mainz-Rüsselsheim')
+
+                # Mainz is reached over the bridge but held for HLB
+                expect(reached?(sb, city('K8'))).to be(true)
+                expect(city('K8').tokenable?(sb)).to be(false)
+                expect(token_step.actions(sb)).to be_empty
+                expect { act(Action::PlaceToken.new(sb, city: city('K8'), slot: 0)) }.to raise_error(GameError)
+              end
+
+              it 'places no station in Frankfurt' do
+                par_and_buy(game.players.first, 'SB', 70, 3)
+                finish_round
+                act(Action::LayTile.new(game.company_by_id('FL'), tile: game.tiles.find { |t| t.name == '921' },
+                                                                  hex: game.hex_by_id('J11'), rotation: 0))
+                operate_with_tiles({ 'SB' => [['L11', '927', 0]] }, { 'SB' => [[:depot]] })
+                finish_round
+                play_until(sb, Engine::Step::Track)
+                lay(sb, 'K12', '8', 0)
+
+                frankfurt = game.hex_by_id('J11').tile.cities.find { |node| reached?(sb, node) }
+                expect(frankfurt).not_to be_nil
+                expect(token_step.available_hex(sb, frankfurt.hex)).to be_nil
+                # Frankfurt is the only free city in reach, so the round goes on to the run without a pass
+                expect(token_step.actions(sb)).to be_empty
+                expect(game.round.active_step).to be_a(G18HN::Step::Route)
+                expect { act(Action::PlaceToken.new(sb, city: frankfurt, slot: 0)) }.to raise_error(GameError)
+              end
+
+              it 'places no station in Wetzlar' do
+                ltb = game.corporation_by_id('LTB')
+                par_and_buy(game.players.first, 'LTB', 70, 3)
+                finish_round
+                operate_with_tiles({ 'LTB' => [['H7', '5', 3]] }, { 'LTB' => [[:depot]] })
+                finish_round
+                play_until(ltb, Engine::Step::Track)
+                lay(ltb, 'H9', '58', 1)
+
+                expect(reached?(ltb, city('G10'))).to be(true)
+                expect(token_step.available_hex(ltb, city('G10').hex)).to be_nil
+                # Wetzlar is the only free city in reach, so the round goes on to the run without a pass
+                expect(token_step.actions(ltb)).to be_empty
+                expect(game.round.active_step).to be_a(G18HN::Step::Route)
+                expect { act(Action::PlaceToken.new(ltb, city: city('G10'), slot: 0)) }.to raise_error(GameError)
+              end
+
+              context 'with WEG over the bridge from Rüdesheim to Bingen' do
+                let(:weg) { game.corporation_by_id('WEG') }
+
+                before do
+                  par_and_buy(game.players.first, 'WEG', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'WEG' => [['J9', '5', 1]] }, { 'WEG' => [[:depot]] })
+                  finish_round
+                  operate_with_tiles('WEG' => [['J7', '9', 1]])
+                  finish_round
+                  play_until(weg, Engine::Step::Track)
+                  lay(weg, 'J5', '5', 3)
+                  build_bridge(weg, 'Rüdesheim-Bingen')
+                end
+
+                it 'places no station in Bingen without the Hessen-Darmstadt concession' do
+                  expect(game.operating_rights(weg)).not_to include('DAR')
+                  expect(reached?(weg, city('K4'))).to be(false)
+                  expect(token_step.available_hex(weg, city('K4').hex)).to be_nil
+                  play_until(weg, Engine::Step::Token)
+                  expect { act(Action::PlaceToken.new(weg, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                end
+
+                it 'places a station in Bingen once the concession is bought' do
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  concession = step.buyable_items(weg).find { |item| item.description == 'Hessen-Darmstadt Concession' }
+                  act(Action::SpecialBuy.new(weg, item: concession))
+                  expect(token_step.available_hex(weg, city('K4').hex)).to be_truthy
+
+                  play_until(weg, Engine::Step::Token)
+                  act(Action::PlaceToken.new(weg, city: city('K4'), slot: 0))
+                  expect(city('K4').tokens.compact.map(&:corporation)).to eq([weg])
+                end
+              end
+
+              context 'with HLB at Bingen and SB over the bridge to Mainz' do
+                before do
+                  par_and_buy(game.players[0], 'HLB', 70, 3)
+                  par_and_buy(game.players[1], 'SB', 70, 3)
+                  finish_round
+                  operate_with_tiles({ 'HLB' => [['K8', '920', 0]], 'SB' => [['L11', '927', 2]] },
+                                     { 'HLB' => [[:depot]], 'SB' => [[:depot]] })
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  lay(hlb, 'K6', '9', 1)
+                  play_until(sb, Engine::Step::Track)
+                  lay(sb, 'K10', '3', 4)
+                  build_bridge(sb, 'Mainz-Rüsselsheim')
+                  operate
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  lay(hlb, 'K4', '6', 2)
+                end
+
+                it 'places one station per operating round, the first extra one for 40' do
+                  # Rüdesheim over the bridge with the Nassau concession is a second free city in reach
+                  build_bridge(hlb, 'Rüdesheim-Bingen')
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  concession = step.buyable_items(hlb).find { |item| item.description == 'Nassau Concession' }
+                  act(Action::SpecialBuy.new(hlb, item: concession))
+                  play_until(hlb, Engine::Step::Token)
+                  expect(token_step.available_hex(hlb, city('J5').hex)).to be_truthy
+
+                  cash = hlb.cash
+                  act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0))
+                  expect(cash - hlb.cash).to eq(40)
+                  expect(token_step.actions(hlb)).to be_empty
+                  expect(token_step.available_hex(hlb, city('J5').hex)).to be_truthy
+                  expect(city('J5').tokenable?(hlb)).to be(true)
+                  expect { act(Action::PlaceToken.new(hlb, city: city('J5'), slot: 0)) }.to raise_error(GameError)
+                end
+
+                it 'charges 100 for the next station' do
+                  act(Action::PlaceToken.new(hlb, city: city('K4'), slot: 0))
+                  operate
+                  finish_round
+                  play_until(hlb, Engine::Step::Track)
+                  expect(token_step.available_tokens(hlb).map(&:price)).to eq([100])
+                end
+
+                it 'lets a full city block the way to the station behind it' do
+                  act(Action::Pass.new(hlb))
+                  play_until(sb, Engine::Step::Track)
+
+                  # Mainz holds only HLB's home station, so SB cannot pass it to Bingen
+                  expect(reached?(sb, city('K8'))).to be(true)
+                  expect(city('K8').tokenable?(sb)).to be(false)
+                  expect(reached?(sb, city('K4'))).to be(false)
+                  expect(token_step.available_hex(sb, city('K4').hex)).to be_nil
+                  expect(reached?(hlb, city('K4'))).to be(true)
+                  expect { act(Action::PlaceToken.new(sb, city: city('K4'), slot: 0)) }.to raise_error(GameError)
+                end
+              end
+            end
+          end
+        end
+
+        context 'track and dividends' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # nobody runs, a company without a train buys one, everything else passes
+          def play_to(entity, step_class)
+            until game.current_entity == entity && game.round.active_step.is_a?(step_class)
+              current = game.current_entity
+              actions = game.round.active_step.actions(current)
+              act(if actions.include?('run_routes')
+                    Action::RunRoutes.new(current, routes: planned_routes(current))
+                  elsif actions.include?('dividend')
+                    Action::Dividend.new(current, kind: 'withhold')
+                  elsif actions.include?('buy_train') && current.trains.empty?
+                    train_action(current, [:depot])
+                  else
+                    Action::Pass.new(current)
+                  end)
+            end
+          end
+
+          context 'with ten percent of HLB in the pool' do
+            let(:routes) { { 'HLB' => [%w[K8 K10]] } }
+
+            [3, 4, 5].each do |count|
+              context "with #{count} players" do
+                let(:players) { count }
+
+                it 'keeps the dividend of the pool share in the bank' do
+                  founder = game.players.first
+                  par_and_buy(founder, 'HLB', 70, 3)
+                  finish_round
+                  play_to(hlb, Engine::Step::Track)
+                  step = game.round.steps.find { |candidate| candidate.is_a?(G18HN::Step::SpecialBuy) }
+                  bridge = step.buyable_items(hlb).find { |item| item.description == 'Bridge Mainz-Rüsselsheim' }
+                  act(Action::SpecialBuy.new(hlb, item: bridge))
+                  lay(hlb, 'K10', '3', 3)
+                  operate('HLB' => [[:depot]])
+                  turn_of(founder)
+                  sell(founder, 'HLB', 10)
+                  expect(game.share_pool.percent_of(hlb)).to eq(10)
+                  finish_round
+
+                  play_to(hlb, Engine::Step::Dividend)
+                  cash = [hlb.cash, founder.cash]
+                  act(Action::Dividend.new(hlb, kind: 'payout'))
+
+                  expect(hlb.cash).to eq(cash.first)
+                  expect(founder.cash - cash.last).to eq(8)
+                  payout = game.log.map(&:message).grep(/HLB pays out/).last
+                  expect(payout).to include("8M to #{founder.name}")
+                  expect(payout).not_to include('to HLB')
+                end
+              end
+            end
+          end
+
+          context 'with LTB next to Wetzlar' do
+            let(:ltb) { game.corporation_by_id('LTB') }
+
+            before do
+              par_and_buy(game.players.first, 'LTB', 70, 3)
+              finish_round
+              operate_with_tiles({ 'LTB' => [['H7', '5', 3]] }, { 'LTB' => [[:depot]] })
+              finish_round
+              play_to(ltb, Engine::Step::Track)
+            end
+
+            it 'keeps track out of the closed sides of Wetzlar' do
+              wetzlar = game.hex_by_id('G10')
+              %w[G8 F11 H11].each { |id| expect(game.hex_by_id(id).neighbors.values).not_to include(wetzlar), id }
+              %w[H9 F9 G12].each { |id| expect(game.hex_by_id(id).neighbors.values).to include(wetzlar), id }
+
+              expect { lay(ltb, 'G8', '8', 4) }.to raise_error(GameError)
+            end
+
+            it 'lays the same tile on G8 when it leads elsewhere' do
+              lay(ltb, 'G8', '8', 0)
+              expect(game.hex_by_id('G8').tile.name).to eq('8')
+            end
+          end
+
+          context 'with HLB on a straight track in K6 in green' do
+            before do
+              stock_round_one
+              finish_round
+              operate_with_tiles({ 'HLB' => [['K8', '920', 0]] },
+                                 { 'SB' => [[:depot]] * 4, 'MNB' => [[:depot]] * 2, 'HLB' => [[:depot]] * 4 })
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles('HLB' => [['K6', '9', 1]])
+              play_exchange_round
+              play_to(hlb, Engine::Step::Track)
+            end
+
+            it 'upgrades a reached hex even if the new track is out of reach' do
+              # the new branch K4-L7 ends at empty hexes, only the old K8-K4 track is reached
+              lay(hlb, 'K6', '23', 1)
+              expect(game.hex_by_id('K6').tile.name).to eq('23')
+            end
+
+            it 'still refuses a hex the company does not reach' do
+              worms = game.hex_by_id('N9')
+              expect(game.round.active_step.available_hex(hlb, worms)).to be_nil
+              expect { lay(hlb, 'N9', '57', 0) }.to raise_error(GameError)
+            end
+          end
+        end
+
+        context 'sold out at the end of a stock round' do
+          let(:sb) { game.corporation_by_id('SB') }
+
+          # b founds SB, a and c buy 20 % each; with OB's reserved share open SB has 90 % with players
+          def sell_out_sb(par_price)
+            par_and_buy(b, 'SB', par_price, 3)
+            2.times do
+              turn_of(a)
+              buy(a, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+            end
+          end
+
+          it 'moves SB up although the reserved share is still open' do
+            sell_out_sb(70)
+            expect(sb.player_share_holders.values.sum).to eq(90)
+            expect(sb.reserved_shares.sum(&:percent)).to eq(10)
+            finish_round
+            expect(sb.share_price.price).to eq(75)
+          end
+
+          it 'leaves SB in the top row' do
+            sell_out_sb(100)
+            expect(game.sold_out?(sb)).to be(true)
+            finish_round
+            expect(sb.share_price.price).to eq(100)
+          end
+        end
+
+        context 'open market limit' do
+          let(:sb) { game.corporation_by_id('SB') }
+
+          before do
+            par_and_buy(b, 'SB', 70, 3)
+            2.times do
+              turn_of(a)
+              buy(a, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+            end
+            finish_round
+            operate('SB' => [[:depot]])
+            turn_of(b)
+            sell(b, 'SB', 30)
+          end
+
+          it 'offers only what fits below 50 percent in the pool' do
+            expect(game.share_pool.percent_of(sb)).to eq(30)
+            turn_of(a)
+            expect(offer(a, 'SB').map(&:first)).to match_array([10, 20])
+          end
+
+          it 'offers nothing once the pool holds 50 percent' do
+            turn_of(a)
+            sell(a, 'SB', 20)
+            expect(game.share_pool.percent_of(sb)).to eq(50)
+            turn_of(c)
+            expect(offer(c, 'SB')).to be_empty
+          end
+        end
+
+        context 'operating order' do
+          it 'runs the higher price first, then the marker that came first on the same field' do
+            par_and_buy(c, 'HLB', 80, 3)
+            par_and_buy(b, 'SB', 70, 3)
+            par_and_buy(a, 'MNB', 70, 3)
+            finish_round
+            pass_frankfurt
+            expect(game.round.entities.map(&:name)).to eq(%w[HLB SB MNB])
+          end
+        end
+
+        context 'player value' do
+          it 'counts privates at face value and concessions at nothing' do
+            game.players.each do |player|
+              privates = player.companies.reject { |company| Game::CONCESSIONS.include?(company.id) }
+              expect(game.player_value(player)).to eq(player.cash + privates.sum(&:value))
+            end
+            expect(game.companies.select { |company| Game::CONCESSIONS.include?(company.id) }.map(&:value).uniq).to eq([0])
+          end
+        end
+
+        context 'operating rights in foreign countries' do
+          let(:mwb) { game.corporation_by_id('MWB') }
+          let(:vb) { game.corporation_by_id('VB') }
+          let(:gruenberg) { game.hex_by_id('G14') }
+
+          def vb_route
+            single_route(vb.trains.first, [%w[F17 F15 G14]])
+          end
+
+          # MWB in Marburg faces Grünberg, VB in Alsfeld faces F15 in Hessen-Kassel
+          before do
+            par_and_buy(game.players[0], 'MWB', 70, 3)
+            par_and_buy(game.players[1], 'VB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MWB' => [['F13', '5', 4]], 'VB' => [['F17', '6', 5]] },
+                               { 'MWB' => [[:depot]], 'VB' => [[:depot]] })
+            finish_round
+            play_until(mwb, Engine::Step::Track)
+          end
+
+          it 'refuses track in Hessen-Darmstadt without the concession' do
+            expect(game.operating_rights(mwb)).not_to include('DAR')
+            expect(game.graph_for_entity(mwb).connected_hexes(mwb)).to include(gruenberg)
+            expect(game.round.active_step.available_hex(mwb, gruenberg)).to be_nil
+            expect { lay(mwb, 'G14', '3', 2) }
+              .to raise_error(GameError, 'Cannot lay track without operating rights in the selected region')
+          end
+
+          context 'with MWB building from Marburg over Grünberg to Alsfeld' do
+            before do
+              act(right_action(mwb, 'HDC'))
+              lay(mwb, 'G14', '3', 2)
+              operate
+              finish_round
+              play_until(mwb, Engine::Step::Track)
+              lay(mwb, 'F15', '8', 4)
+              play_until(vb, Engine::Step::Track)
+            end
+
+            it 'keeps Grünberg out of reach over track in Hessen-Kassel without the concession' do
+              expect(game.hex_operating_rights?(vb, gruenberg)).to be(true)
+              expect(game.round.active_step.available_hex(vb, gruenberg)).to be_nil
+
+              act(right_action(vb, 'HKC'))
+              expect(game.round.active_step.available_hex(vb, gruenberg)).to be_truthy
+            end
+
+            it 'refuses a route through Hessen-Kassel without the concession' do
+              expect { vb_route.revenue }.to raise_error(GameError, 'VB needs operating rights for F15')
+            end
+
+            it 'accepts the route through Hessen-Kassel once the concession is bought' do
+              act(right_action(vb, 'HKC'))
+              play_until(vb, G18HN::Step::Route)
+              act(Action::RunRoutes.new(vb, routes: [vb_route]))
+              expect(game.log.map(&:message)).to include('VB runs a 2 train for 30M: F17-G14')
+            end
+          end
+        end
+
+        context 'plus trains and transit routes' do
+          let(:hlb) { game.corporation_by_id('HLB') }
+          let(:sb) { game.corporation_by_id('SB') }
+
+          def hlb_route(train_name, connection_hexes)
+            single_route(hlb.trains.find { |candidate| candidate.name == train_name }, connection_hexes)
+          end
+
+          def run(route)
+            act(Action::RunRoutes.new(hlb, routes: [route]))
+          end
+
+          context 'with HLB from Mainz over Rüsselsheim to Darmstadt' do
+            # two cities with a town between them
+            let(:route_hexes) { [%w[K8 K10], %w[K10 L11]] }
+
+            before do
+              par_and_buy(a, 'SB', 70, 3)
+              par_and_buy(b, 'HLB', 70, 3)
+              finish_round
+              play_until(sb, Engine::Step::Track)
+              lay(sb, 'L11', '927', 2)
+              play_until(hlb, Engine::Step::Track)
+              build_bridge(hlb, 'Mainz-Rüsselsheim')
+              lay(hlb, 'K10', '3', 4)
+              operate('HLB' => [[:depot], [:depot, nil, nil, '2+2']])
+              finish_round
+              play_until(hlb, Engine::Step::Route)
+            end
+
+            it 'lets a 2+2 train run two cities and a town' do
+              route = hlb_route('2+2', route_hexes)
+              expect(route.stops.map(&:hex).map(&:id)).to eq(%w[K8 K10 L11])
+              run(route)
+              expect(game.log.map(&:message)).to include('HLB runs a 2+2 train for 50M: K8-K10-L11')
+            end
+
+            it 'refuses the same route for a 2 train' do
+              expect { run(hlb_route('2', route_hexes)) }
+                .to raise_error(GameError, '3 is too many stops for 2 train')
+            end
+          end
+
+          context 'with HLB from Rheinland over Bingen and Alzey to Pfalz' do
+            let(:route_hexes) { [%w[J3 K4], %w[K4 L5 M6], %w[M6 N5]] }
+
+            # SB and MNB buy eight 2 trains, HLB the last one as 2+2 and the first 3 train as 3+3, so green starts
+            before do
+              game.players.cycle.first(3).zip(%w[SB MNB HLB]).each { |player, id| par_and_buy(player, id, 70, 3) }
+              finish_round
+              trains = {
+                'SB' => [[:depot]] * 4,
+                'MNB' => [[:depot]] * 4,
+                'HLB' => [[:depot, nil, nil, '2+2'], [:depot, nil, nil, '3+3']],
+              }
+              operate_with_tiles({ 'HLB' => [['K6', '9', 1]] }, trains)
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles({ 'HLB' => [['K4', '6', 2]] }, {}, { 'HLB' => 'K4' })
+              play_exchange_round
+              operate_with_tiles('HLB' => [['K4', '442', 5]])
+              play_exchange_round
+              finish_round
+              play_exchange_round
+              operate_with_tiles('HLB' => [['L5', '9', 2]])
+              play_exchange_round
+              play_until(hlb, Engine::Step::Track)
+              lay(hlb, 'M6', '58', 0)
+              play_until(hlb, Engine::Step::Route)
+            end
+
+            it 'counts an off-board area as a city for a plus train' do
+              expect { hlb_route('2+2', [%w[J3 K4], %w[K4 K6 K8]]).revenue }
+                .to raise_error(GameError, 'Route has too many stops')
+            end
+
+            it 'adds the transit bonus of Rheinland and Pfalz' do
+              route = hlb_route('3+3', route_hexes)
+              # J3 50, K4 30, M6 10, N5 30; Rheinland gives 10 to the south, Pfalz 20 to the west
+              expect(route.revenue).to eq(150)
+              expect(route.revenue_str).to eq('J3-K4-M6-N5 + Transit(30)')
+
+              run(route)
+              expect(game.log.map(&:message)).to include('HLB runs a 3+3 train for 150M: J3-K4-M6-N5 + Transit(30)')
+            end
+          end
+        end
+
+        context 'home station in the first operating round' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # Worms is reached over the bridge, the yellow tile is laid before the token step
+          def reach_worms
+            build_bridge(mnb, 'Worms-Bensheim')
+            lay(mnb, 'N9', '5', 0)
+          end
+
+          def open_first_round
+            finish_round
+            pass_frankfurt
+          end
+
+          before { par_and_buy(a, 'MNB', 70, 3) }
+
+          it 'places the home station for free when the company first operates and keeps the token step open' do
+            cash = mnb.cash
+            expect(city('N11').tokened_by?(mnb)).to be(false)
+
+            open_first_round
+            expect(game.current_entity).to eq(mnb)
+            expect(city('N11').tokened_by?(mnb)).to be(true)
+            expect(mnb.cash).to eq(cash)
+
+            reach_worms
+            expect(game.round.active_step).to be_a(G18HN::Step::Token)
+            expect(token_step.actions(mnb)).to include('place_token')
+          end
+
+          it 'clears a graph computed before the home station is placed' do
+            expect(game.graph_for_entity(mnb).connected_nodes(mnb)).to be_empty
+
+            open_first_round
+            expect(game.graph_for_entity(mnb).connected_nodes(mnb)).to include(city('N11'))
+          end
+
+          it 'places a second station in the same round for 40' do
+            open_first_round
+            reach_worms
+
+            cash = mnb.cash
+            act(Action::PlaceToken.new(mnb, city: city('N9'), slot: 0))
+            expect(cash - mnb.cash).to eq(40)
+            expect(city('N11').tokened_by?(mnb)).to be(true)
+            expect(city('N9').tokened_by?(mnb)).to be(true)
+          end
+        end
+
+        context 'certificate limit' do
+          it 'counts privates and shares but not concessions' do
+            expect(a.companies.map(&:id)).to match_array(%w[FL FC TB NC])
+            expect(b.companies.map(&:id)).to match_array(%w[HB BE WC OB HDC])
+            expect(c.companies.map(&:id)).to match_array(%w[BR FB HKC])
+            expect([a, b, c].map { |player| game.num_certs(player) }).to eq([2, 3, 2])
+            turn_of(b)
+            par(b, 'SB', 70)
+            expect(game.num_certs(b)).to eq(4)
+          end
+        end
+
+        context 'train returned after the train limit drops' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fhb) { game.corporation_by_id('FHB') }
+
+          # SB holds four 3 trains, FHB is at its train buy once the 3 trains are gone
+          before do
+            par_and_buy(a, 'MNB', 70, 3)
+            par_and_buy(b, 'FHB', 70, 3)
+            par_and_buy(c, 'HLB', 100, 3)
+            finish_round
+            # the FHB tiles complete its obligated track, without that money FHB cannot pay for the 4
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]], 'FHB' => [['G20', '5', 1]] },
+                               'MNB' => [[:depot]] * 2, 'FHB' => [[:depot]], 'HLB' => [[:depot]] * 2)
+            finish_round
+            operate_with_tiles('MNB' => [['N13', '3', 1]], 'FHB' => [['F19', '9', 2]])
+            par_and_buy(a, 'WLB', 70, 3)
+            finish_round
+            operate_with_tiles({ 'MNB' => [['M12', '7', 5]], 'FHB' => [['E18', '5', 4]] }, 'WLB' => [[:depot]] * 4)
+            finish_round
+            # MNB completes the Odenwald, so SB floats with its full capital
+            operate_with_tiles('MNB' => [['O12', '3', 1]])
+            par_and_buy(b, 'SB', 80, 3)
+            finish_round
+            advance_to_buy_train('FHB', 'SB' => [[:depot]] * 4, 'HLB' => [[:depot]] * 2)
+          end
+
+          # FHB buys the first 4 train, SB is one over the new limit of 3 and gives back a 3
+          def return_train
+            expect(game.current_entity).to eq(fhb)
+            expect(game.depot.upcoming.first.name).to eq('4')
+            act(train_action(fhb, [:depot]))
+            expect(game.phase.name).to eq('4')
+            expect(game.current_entity).to eq(sb)
+            train = sb.trains.first
+            act(Action::DiscardTrain.new(sb, train: train))
+            expect(game.current_entity).to eq(fhb)
+            train
+          end
+
+          it 'puts the returned train in the pool without compensation' do
+            expect(sb.trains.map(&:name)).to eq(%w[3 3 3 3])
+            cash = sb.cash
+            train = return_train
+            expect(sb.trains.size).to eq(3)
+            expect(sb.cash).to eq(cash)
+            expect(train.owner).to eq(game.depot)
+            expect(game.depot.discarded).to eq([train])
+          end
+
+          it 'offers the returned train as normal and as plus train at face value' do
+            train = return_train
+            variants = game.round.active_step.buyable_train_variants(train, fhb)
+            expect(variants.map { |v| [v[:name], v[:price]] }).to match_array([['3', 150], ['3+3', 180]])
+          end
+
+          it 'sells the returned train as a 3 for 150' do
+            train = return_train
+            expect { act(train_action(fhb, [:depot, nil, nil, '3'])) }.to change(fhb, :cash).by(-150)
+            expect(train.owner).to eq(fhb)
+            expect(train.name).to eq('3')
+          end
+
+          it 'sells the returned train as a 3+3 for 180' do
+            train = return_train
+            expect { act(train_action(fhb, [:depot, nil, nil, '3+3'])) }.to change(fhb, :cash).by(-180)
+            expect(train.owner).to eq(fhb)
+            expect(train.name).to eq('3+3')
+          end
+
+          it 'offers the next 4 train beside the returned train' do
+            train = return_train
+            trains = game.round.active_step.buyable_trains(fhb)
+            expect(trains).to include(train)
+            expect(trains.map(&:name)).to include('4')
+          end
+        end
+
+        context 'exchange share sold in the operating round brown starts' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:fhb) { game.corporation_by_id('FHB') }
+
+          let(:routes) do
+            { 'SB' => [%w[L11 M10 N11]], 'MNB' => [%w[N11 O10], %w[N11 M10 L11]], 'HLB' => [%w[K8 K6 K4]] }
+          end
+
+          # b owns OB but no SB share; WLB buys the first 5 and FHB's only train, so FHB of b must buy before SB pays
+          def play_into_brown
+            { c => 'SB', a => 'MNB', b => 'HLB' }.each do |player, id|
+              turn_of(player)
+              par(player, id, 100)
+            end
+            3.times do
+              { c => 'SB', a => 'MNB', b => 'HLB' }.each do |player, id|
+                turn_of(player)
+                buy(player, id)
+              end
+            end
+            finish_round
+
+            operate_with_tiles({ 'SB' => [['L11', '927', 0]], 'MNB' => [['N11', '6', 0]], 'HLB' => [['K6', '9', 1]] },
+                               { 'SB' => [[:depot]] * 3, 'MNB' => [[:depot]] * 3, 'HLB' => [[:depot]] * 3 })
+            play_until_operating
+            operate_with_tiles({ 'SB' => [['M10', '8', 3]], 'HLB' => [['K4', '5', 4]] }, { 'SB' => [[:depot]] })
+            12.times do
+              play_until_operating
+              operate
+            end
+            play_until_stock
+
+            par_and_buy(c, 'WLB', 100, 3)
+            par_and_buy(b, 'FHB', 70, 3)
+            par_and_buy(a, 'WEG', 70, 2)
+            finish_round
+            play_exchange_round
+            operate_with_tiles({ 'WLB' => [['C14', '5', 4]] },
+                               {
+                                 'WLB' => [['SB', 1]],
+                                 'FHB' => [['HLB', 1], [:depot]],
+                                 'SB' => [[:depot]],
+                                 'MNB' => [[:depot]],
+                                 'HLB' => [[:depot]] * 2,
+                               })
+            play_until_operating
+            operate('WLB' => [['SB', 1, '3']], 'SB' => [[:depot]], 'MNB' => [[:depot]], 'HLB' => [[:depot]])
+            play_exchange_round while game.round.is_a?(G18HN::Round::Exchange)
+            # keeps b and FHB together below the 550 of a 5+5
+            turn_of(b)
+            buy(b, 'MNB')
+            play_until_operating
+            operate('SB' => [[:depot]], 'MNB' => [[:depot]])
+            play_until_operating
+            advance_to_buy_train('FHB', 'WLB' => [['FHB', 1], [:depot]])
+          end
+
+          before { play_into_brown }
+
+          it 'charges nothing for the sold exchange share when SB pays out' do
+            expect(game.phase.name).to eq('5')
+            expect(game.round.entities.map(&:id)).to eq(%w[WLB FHB SB MNB HLB])
+            expect(game.share_by_id('SB_8').owner).to eq(b)
+            expect(b.shares_of(sb).map(&:id)).to eq(['SB_8'])
+            expect(fhb.trains).to be_empty
+            expect(b.cash + fhb.cash).to eq(510)
+
+            sell(b, 'SB', 10)
+            expect(game.share_pool.shares_of(sb).map(&:id)).to eq(['SB_8'])
+            act(Action::BuyTrain.new(fhb, train: game.depot.depot_trains.find { |t| t.name == '5' }, price: 550,
+                                          variant: '5+5'))
+            expect(b.cash).to eq(0)
+
+            play_until(sb, G18HN::Step::Route)
+            act(Action::RunRoutes.new(sb, routes: planned_routes(sb)))
+            act(Action::Dividend.new(sb, kind: 'payout'))
+            expect(b.cash).to eq(0)
+          end
+        end
+
+        context 'train trade between corporations' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # SB buys its first 2 from the bank as the given variant, HLB a normal 2; in OR 2 HLB is at its train buy
+          def trade(variant)
+            stock_round_one
+            finish_round
+            operate('SB' => [[:depot, nil, nil, variant]], 'HLB' => [[:depot]], 'MNB' => [[:depot]])
+            finish_round
+            advance_to_buy_train('HLB')
+            expect(game.current_entity).to eq(hlb)
+            sb.trains.first
+          end
+
+          it 'refuses a normal 2 of another corporation as 2+2' do
+            train = trade('2')
+            expect(train.name).to eq('2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2+2')) }
+              .to raise_error(GameError, /Not a buyable train/)
+          end
+
+          it 'refuses a 2+2 of another corporation as a normal 2' do
+            train = trade('2+2')
+            expect(train.name).to eq('2+2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2')) }
+              .to raise_error(GameError, /Not a buyable train/)
+          end
+
+          it 'refuses a price of 0' do
+            train = trade('2')
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 0)) }
+              .to raise_error(GameError, /may not spend 0M/)
+          end
+
+          it 'hands a 2+2 over as a 2+2' do
+            train = trade('2+2')
+            act(Action::BuyTrain.new(hlb, train: train, price: 1))
+            expect(train.owner).to eq(hlb)
+            expect(train.name).to eq('2+2')
+          end
+
+          it 'hands a 2+2 over when it is bought as a 2+2' do
+            train = trade('2+2')
+            act(Action::BuyTrain.new(hlb, train: train, price: 1, variant: '2+2'))
+            expect(train.owner).to eq(hlb)
+            expect(train.name).to eq('2+2')
+          end
+        end
+
+        context 'forced buy from another corporation' do
+          let(:sb) { game.corporation_by_id('SB') }
+          let(:hlb) { game.corporation_by_id('HLB') }
+
+          # SB buys a 2 from the bank, then HLB is at its first train buy in OR 1
+          def forced_buy
+            stock_round_one
+            finish_round
+            pass_frankfurt
+            advance_to_buy_train('HLB', 'SB' => [[:depot]])
+            sb.trains.first
+          end
+
+          it 'lets the director add to the price beyond the treasury' do
+            train = forced_buy
+            expect(hlb.trains).to be_empty
+            expect(hlb.cash).to eq(350)
+            cash = c.cash
+            act(Action::BuyTrain.new(hlb, train: train, price: 360))
+            expect(train.owner).to eq(hlb)
+            expect(hlb.cash).to eq(0)
+            expect(cash - c.cash).to eq(10)
+          end
+
+          it 'keeps a corporation with a train to its treasury' do
+            train = forced_buy
+            act(train_action(hlb, [:depot]))
+            expect(hlb.cash).to eq(270)
+            expect { act(Action::BuyTrain.new(hlb, train: train, price: 271)) }
+              .to raise_error(GameError, /may only spend between 1M and 270M/)
+          end
+        end
+
+        context 'emergency sale' do
+          let(:ltb) { game.corporation_by_id('LTB') }
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # Plays through OR 1, the price is what HLB pays for one of MNB's 2 trains
+          def strip_mnb(price)
+            par_and_buy(a, 'MNB', 80, 4)
+            par_and_buy(c, 'HLB', 70, 3)
+            par_and_buy(b, 'VB', 70, 3)
+            turn_of(c)
+            par(c, 'FWN', 70)
+            3.times do
+              turn_of(b)
+              buy(b, 'FWN')
+            end
+            finish_round
+
+            # MNB spends its capital and hands over all four trains
+            operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
+                    'HLB' => [[:depot], [:depot], ['MNB', price]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
+                    'FWN' => [[:depot], ['MNB', 1], ['MNB', 1]])
+          end
+
+          # Plays to MNB's forced train buy in OR 2
+          def emergency(price)
+            strip_mnb(price)
+            turn_of(c)
+            par(c, 'LTB', 70)
+            turn_of(c)
+            buy(c, 'LTB')
+            2.times do
+              turn_of(a)
+              buy(a, 'LTB')
+            end
+            finish_round
+
+            advance_to_buy_train('MNB')
+            step = game.round.active_step
+            step.needed_cash(a) - step.available_cash(a)
+          end
+
+          {
+            31 => [66, [[10, 65], [20, 65]]],
+            32 => [65, [[10, 65]]],
+            38 => [59, [[10, 65]]],
+          }.each do |price, (shortfall, bundles)|
+            it "offers #{bundles.map(&:first).join(' and ')} % of LTB at a shortfall of #{shortfall}" do
+              expect(emergency(price)).to eq(shortfall)
+              expect(ltb).not_to be_operated
+              expect(offer(a, 'LTB')).to match_array(bundles)
+            end
+          end
+
+          it 'sells 20 % in one action at a shortfall of 66' do
+            emergency(31)
+            expect(mnb.trains).to be_empty
+            expect(mnb.cash).to eq(34)
+            expect(a.cash).to eq(80)
+            expect(game.round.active_step.needed_cash(a)).to eq(180)
+            expect(ltb.share_price.coordinates).to eq([5, 4])
+
+            cash = a.cash
+            sell(a, 'LTB', 20)
+            expect(a.cash - cash).to eq(130)
+            expect(ltb.share_price.coordinates).to eq([6, 4])
+            expect(ltb.share_price.price).to eq(65)
+          end
+
+          it 'sells 20 % at a shortfall of 96 to afford the 3+3' do
+            expect(emergency(1)).to eq(96)
+            cash = a.cash
+            sell(a, 'LTB', 20)
+            expect(a.cash - cash).to eq(130)
+          end
+
+          it 'offers only the 3+3 once the sale was needed for it' do
+            emergency(31)
+            sell(a, 'LTB', 20)
+            train = game.depot.min_depot_train
+            expect(game.round.active_step.buyable_train_variants(train, mnb).map { |v| v[:name] }).to eq(['3+3'])
+            expect { act(train_action(mnb, [:depot])) }.to raise_error(GameError)
+          end
+
+          it 'takes the 3+3 once the sale was needed for it' do
+            emergency(31)
+            sell(a, 'LTB', 20)
+            act(train_action(mnb, [:depot, nil, nil, '3+3']))
+            expect(mnb.trains.map(&:name)).to eq(['3+3'])
+          end
+
+          it 'offers both variants when the sale was needed for the 3' do
+            emergency(31)
+            sell(a, 'LTB', 10)
+            train = game.depot.min_depot_train
+            expect(game.round.active_step.buyable_train_variants(train, mnb).map { |v| v[:name] }).to eq(%w[3 3+3])
+          end
+
+          it 'still offers another corporation\'s train after the sale' do
+            emergency(1)
+            sell(a, 'LTB', 20)
+            hlb = game.corporation_by_id('HLB')
+            expect(game.round.active_step.buyable_trains(mnb)).to include(*hlb.trains.select { |t| t.name == '2' })
+          end
+
+          it 'lets the forced buyer choose the plus variant from the bank' do
+            emergency(1)
+            sell(a, 'LTB', 20)
+            train = game.depot.min_depot_train
+            plus = train.variants.keys.find { |name| name.include?('+') }
+            act(Action::BuyTrain.new(mnb, train: train, price: train.variants[plus][:price], variant: plus))
+            expect(mnb.trains.map(&:name)).to eq([plus])
+          end
+
+          it 'lets the forced buyer pay another corporation more than face value' do
+            emergency(1)
+            hlb = game.corporation_by_id('HLB')
+            train = hlb.trains.find { |candidate| candidate.name == '2' }
+            act(Action::BuyTrain.new(mnb, train: train, price: 84))
+            expect(train.owner).to eq(mnb)
+          end
+
+          it 'rejects 20 % at a shortfall of 65' do
+            emergency(32)
+            shares = a.shares_of(ltb).first(2)
+            action = Action::SellShares.new(a, shares: shares, share_price: 65, percent: 20)
+            expect { act(action) }.to raise_error(GameError, /Cannot sell shares of LTB/)
+          end
+
+          context 'bankruptcy' do
+            # Plays to MNB's forced train buy in OR 2 with a's money tied up in the unfloated LTB and SB
+            def go_broke
+              strip_mnb(1)
+              turn_of(a)
+              sell(a, 'MNB', 30)
+              par(a, 'LTB', 70)
+              2.times do
+                turn_of(a)
+                buy(a, 'LTB')
+              end
+              turn_of(a)
+              par(a, 'SB', 70)
+              finish_round
+              advance_to_buy_train('MNB')
+            end
+
+            it 'counts every player at full value before the bankruptcy' do
+              go_broke
+              expect(game.players.map { |player| game.player_value(player) }).to eq(game.players.map(&:value))
+            end
+
+            it 'puts the bankrupt player last at 0 and ranks the others by value' do
+              go_broke
+              act(Action::Bankrupt.new(mnb))
+              expect(game.finished).to be(true)
+              expect(game.game_end_reason).to eq(:bankrupt)
+              expect(a.value).to eq(670)
+              expect(game.result).to eq('b' => b.value, 'c' => c.value, 'a' => 0)
+              expect(game.result.keys).to eq(%w[b c a])
+            end
+          end
+
+          context 'bankruptcy with trains of other companies for sale' do
+            let(:sb) { game.corporation_by_id('SB') }
+            let(:vb) { game.corporation_by_id('VB') }
+
+            # a sells MNB down to the director's certificate and floats SB, which buys a 3 in OR 2 before MNB
+            def go_broke_beside_sb
+              strip_mnb(1)
+              turn_of(a)
+              sell(a, 'MNB', 40)
+              par(a, 'SB', 70)
+              turn_of(b)
+              buy(b, 'SB')
+              turn_of(c)
+              buy(c, 'SB')
+              turn_of(a)
+              buy(a, 'SB')
+              par_and_buy(a, 'LTB', 70, 2)
+              finish_round
+              advance_to_buy_train('MNB', 'SB' => [[:depot]])
+              sb.trains.first
+            end
+
+            it 'offers bankruptcy' do
+              go_broke_beside_sb
+              expect(sb.owner).to eq(a)
+              expect(game.total_emr_buying_power(a, mnb)).to eq(99)
+              expect(game.can_go_bankrupt?(a, mnb)).to be(true)
+            end
+
+            it 'offers the trains of the other companies' do
+              train = go_broke_beside_sb
+              expect(train.name).to eq('3')
+              expect(game.round.active_step.buyable_trains(mnb)).to include(train, vb.trains.first)
+            end
+
+            it "buys the train of the director's other company for 1" do
+              train = go_broke_beside_sb
+              cash = sb.cash
+              act(Action::BuyTrain.new(mnb, train: train, price: 1))
+              expect(train.owner).to eq(mnb)
+              expect(sb.cash - cash).to eq(1)
+              expect(game.finished).to be(false)
+            end
+
+            it "buys another player's train for 1" do
+              go_broke_beside_sb
+              train = vb.trains.first
+              expect(vb.owner).to eq(b)
+              cash = vb.cash
+              act(Action::BuyTrain.new(mnb, train: train, price: 1))
+              expect(train.owner).to eq(mnb)
+              expect(vb.cash - cash).to eq(1)
+              expect(game.finished).to be(false)
+            end
+
+            it 'refuses a price of 0' do
+              train = go_broke_beside_sb
+              expect { act(Action::BuyTrain.new(mnb, train: train, price: 0)) }
+                .to raise_error(GameError, /may only spend between 1M and 34M/)
+            end
+          end
+        end
+
+        context 'emergency sale of the buying company' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # a directs MNB with 40 %, b holds 30 %; MNB hands its 2 trains away in OR 1 and must buy in OR 2
+          # kept: how many of its 2 trains MNB still owns in OR 2
+          def strand_mnb(kept: 0)
+            turn_of(a)
+            par(a, 'MNB', 80)
+            2.times do
+              turn_of(a)
+              buy(a, 'MNB')
+            end
+            3.times do
+              turn_of(b)
+              buy(b, 'MNB')
+            end
+            par_and_buy(c, 'HLB', 70, 3)
+            par_and_buy(b, 'VB', 70, 3)
+            par_and_buy(a, 'FWN', 70, 3)
+            finish_round
+            operate('MNB' => [[:right, 'HKC'], [:right, 'WC']] + ([[:depot]] * 4),
+                    'HLB' => [[:depot], [:depot], ['MNB', 1]], 'VB' => [[:depot], [:depot], ['MNB', 1]],
+                    'FWN' => [[:depot]] + ([['MNB', 1]] * (2 - kept)))
+            finish_round
+            advance_to_buy_train('MNB')
+          end
+
+          it 'refuses a sale while the company still has a train' do
+            strand_mnb(kept: 1)
+            expect(mnb.trains.map(&:name)).to eq(['2'])
+            expect(game.round.active_step.actions(a)).to be_empty
+            expect { sell(a, 'MNB', 20) }.to raise_error(GameError, /cannot process action sell_shares/)
+          end
+
+          it 'offers the shares that cost the director the presidency' do
+            strand_mnb
+            expect(mnb.player_share_holders).to eq(a => 40, b => 30)
+            expect(offer(a, 'MNB')).to match_array([[10, 70], [20, 70], [30, 70]])
+          end
+
+          it 'keeps the director paying until the train is bought, then hands MNB over' do
+            strand_mnb
+            sell(a, 'MNB', 20)
+            expect(mnb.owner).to eq(a)
+
+            cash = b.cash
+            act(train_action(mnb, [:depot]))
+            expect(mnb.trains.map(&:name)).to eq(['3'])
+            expect(a.cash).to eq(24)
+            expect(b.cash).to eq(cash)
+            expect(mnb.owner).to eq(b)
+            expect(b.shares_of(mnb).find(&:president)).not_to be_nil
+            expect(mnb.player_share_holders).to eq(a => 20, b => 30)
+          end
+
+          it "sells part of the director's certificate and hands it over with the sale" do
+            strand_mnb
+            sell(a, 'MNB', 30)
+            expect(mnb.owner).to eq(a)
+            expect(b.shares_of(mnb).find(&:president)).not_to be_nil
+            expect(mnb.player_share_holders).to eq(a => 10, b => 30)
+            expect(game.share_pool.percent_of(mnb)).to eq(30)
+
+            # 30 % is more than the 3 needs, so only the 3+3 is left
+            cash = b.cash
+            act(train_action(mnb, [:depot, nil, nil, '3+3']))
+            expect(a.cash).to eq(64)
+            expect(b.cash).to eq(cash)
+            expect(mnb.owner).to eq(b)
+            messages = game.log.map(&:message)
+            expect(messages.rindex('b becomes the president of MNB'))
+              .to be > messages.rindex('MNB buys a 3+3 train for 180M from The Depot')
+          end
+        end
+
+        context 'bank at zero' do
+          let(:mnb) { game.corporation_by_id('MNB') }
+
+          # Ends SR 1 with the bank holding rest after the privates are paid at the start of OR 1
+          def pay_privates_down_to(rest)
+            par_and_buy(a, 'MNB', 80, 4)
+            # shortcut: the bank hands its surplus to a so the privates' 75 leaves it at rest
+            game.bank.spend(game.bank.cash - 75 - rest, a)
+            finish_round
+          end
+
+          it 'breaks at exactly 0 and ends the game after the set' do
+            pay_privates_down_to(0)
+            expect(game.bank.cash).to eq(0)
+            expect(game.bank).to be_broken
+            expect(game.finished).to be(false)
+
+            pass_frankfurt
+            advance_to_buy_train('MNB')
+            act(train_action(mnb, [:depot]))
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'stays broken when the bank is paid again in the same operating round' do
+            pay_privates_down_to(0)
+            pass_frankfurt
+            advance_to_buy_train('MNB')
+            act(train_action(mnb, [:depot]))
+            expect(game.bank.cash).to eq(80)
+            expect(game.bank).to be_broken
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          it 'stays broken when the first action after the payout pays the bank' do
+            par_and_buy(a, 'MNB', 80, 4)
+            finish_round
+            # FL builds both Frankfurt hexes, so MNB acts first in OR 3
+            operate_with_tiles({ 'FL' => [['J11', '921', 0]], 'MNB' => [['N11', '5', 4]] }, { 'MNB' => [[:depot]] })
+            finish_round
+            operate_with_tiles('FL' => [['J13', '922', 0]])
+            # shortcut: the bank hands its surplus to a so the privates' 95 leaves it at 0
+            game.bank.spend(game.bank.cash - 95, a)
+            finish_round
+            expect(game.bank.cash).to eq(0)
+            expect(game.current_entity).to eq(mnb)
+
+            act(Action::LayTile.new(mnb, tile: game.tiles.find { |tile| tile.name == '3' }, hex: game.hex_by_id('N13'),
+                                         rotation: 1))
+            expect(game.bank.cash).to eq(40)
+            expect(game.bank).to be_broken
+
+            act(Action::RunRoutes.new(mnb, routes: []))
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+          end
+
+          # MNB builds the Odenwald hexes, in OR 4 it is at its train buy right after laying M12
+          # with hlb, HLB operates after MNB in every OR
+          def build_odenwald(hlb: false)
+            par_and_buy(b, 'SB', 70, 2)
+            par_and_buy(a, 'MNB', 80, 4)
+            par_and_buy(c, 'HLB', 70, 4) if hlb
+            finish_round
+            operate_with_tiles({ 'MNB' => [['N11', '5', 4]] }, { 'MNB' => [[:depot]], 'HLB' => [[:depot]] })
+            [['N13', '3', 1], ['O12', '3', 1]].each do |lay|
+              finish_round
+              operate_with_tiles('MNB' => [lay])
+            end
+            finish_round
+            pass_frankfurt
+            advance_to_buy_train('MNB', {}, { 'MNB' => [['M12', '9', 2]] })
+            expect(game.corporation_by_id('SB')).not_to be_floated
+          end
+
+          it 'waits for the end of the OR before the forced exchange' do
+            build_odenwald
+            act(Action::Message.new(a, message: 'hi'))
+            expect(game.company_by_id('OB')).not_to be_closed
+            expect(game.corporation_by_id('SB')).not_to be_floated
+          end
+
+          it 'waits for the last company of the OR before the forced exchange' do
+            build_odenwald(hlb: true)
+            hlb = game.corporation_by_id('HLB')
+            expect(game.round.entities).to eq([mnb, hlb])
+
+            act(Action::Pass.new(mnb))
+            expect(game.current_entity).to eq(hlb)
+            expect(game.company_by_id('OB')).not_to be_closed
+
+            operate
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
+          end
+
+          it 'breaks when the forced exchange at the end of the OR floats a company' do
+            build_odenwald
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
+            expect(game.bank.cash).to eq(0)
+            expect(game.bank).to be_broken
+          end
+
+          it 'ends the game after the set when the forced exchange empties the bank' do
+            build_odenwald
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.game_end_reason).to eq(:bank)
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
+          end
+
+          it 'offers FL nothing once the game ended at the end of an operating round' do
+            build_odenwald
+            # shortcut: the bank hands its surplus to a so SB's 700 on floating leaves it at 0
+            game.bank.spend(game.bank.cash - 700, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.round.active_step).to be_nil
+          end
+
+          it 'still makes the forced exchange when the bank is already empty' do
+            build_odenwald
+            # shortcut: the bank hands all its cash to a
+            game.bank.spend(game.bank.cash, a)
+
+            act(Action::Pass.new(mnb))
+            expect(game.finished).to be(true)
+            expect(game.company_by_id('OB')).to be_closed
+            expect(game.corporation_by_id('SB')).to be_floated
+          end
+
+          it 'keeps the game going with 1 left in the bank' do
+            pay_privates_down_to(1)
+            expect(game.bank.cash).to eq(1)
+            expect(game.bank).not_to be_broken
+
+            operate('MNB' => [[:depot]])
+            expect(game.finished).to be(false)
+            expect(game.round).to be_a(Engine::Round::Stock)
+          end
+        end
+
+        it 'offers nothing of an exchanged corporation without par price' do
+          play_into_green(with_wlb: false)
+          wlb = game.corporation_by_id('WLB')
+          play_exchange_round('BE' => 'Exchange')
+          expect(wlb.ipoed).to be_falsey
+          expect(game.sellable_bundles(b, wlb)).to eq([])
+        end
+      end
+    end
+  end
+end
