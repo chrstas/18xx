@@ -9,6 +9,11 @@ x-rack: &rack
     NEW_RELIC_DISABLE_MIDDLEWARE_INSTRUMENTATION: 1
     SLACK_WEBHOOK_URL: $SLACK_WEBHOOK_URL
     TURNSTILE_SECRET: $TURNSTILE_SECRET
+    TURNSTILE_SITEKEY: $TURNSTILE_SITEKEY
+    TURNSTILE_HOSTS: $TURNSTILE_HOSTS
+    MAIL_FROM: $MAIL_FROM
+    UNICORN_WORKERS: ${UNICORN_WORKERS:-4}
+    NEW_RELIC_AGENT_ENABLED: "false"
     # No RUBYOPT: --yjit. YJIT pins the method entries it compiles in its root
     # set, so any method defined at runtime per object -- define_method or
     # singleton_class in an initializer -- keeps that object alive for the life

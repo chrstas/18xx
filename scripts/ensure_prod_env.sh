@@ -22,16 +22,20 @@ if [ -z "${POSTGRES_DB}" ]; then
     bad_vars_msg="${bad_vars_msg}\n- POSTGRES_DB"
 fi
 
-if [ -z "${NEW_RELIC_LICENSE_KEY}" ]; then
-    bad_vars_msg="${bad_vars_msg}\n- NEW_RELIC_LICENSE_KEY"
-fi
-
-if [ -z "${SLACK_WEBHOOK_URL}" ]; then
-    bad_vars_msg="${bad_vars_msg}\n- SLACK_WEBHOOK_URL"
-fi
-
 if [ -z "${TURNSTILE_SECRET}" ]; then
     bad_vars_msg="${bad_vars_msg}\n- TURNSTILE_SECRET"
+fi
+
+if [ -z "${TURNSTILE_SITEKEY}" ]; then
+    bad_vars_msg="${bad_vars_msg}\n- TURNSTILE_SITEKEY"
+fi
+
+if [ -z "${TURNSTILE_HOSTS}" ]; then
+    bad_vars_msg="${bad_vars_msg}\n- TURNSTILE_HOSTS"
+fi
+
+if [ -z "${MAIL_FROM}" ]; then
+    bad_vars_msg="${bad_vars_msg}\n- MAIL_FROM"
 fi
 
 if [ ! -z "${bad_vars_msg}" ]; then
