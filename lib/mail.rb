@@ -15,7 +15,7 @@ module Mail
     req.body = URI.encode_www_form(
       'apikey' => ENV['ELASTIC_KEY'],
       'subject' => subject,
-      'from' => 'no-reply@18xx.games',
+      'from' => ENV['MAIL_FROM'],
       'to' => user.email,
       'bodyHtml' => html,
       'isTransactional' => true,

@@ -17,7 +17,7 @@ class Api
           halt(403, 'This account has been banned') if Ban.banned_account?(user.id)
           unless user.verified?
             halt(401, 'Please verify your email before logging in. Check your spam folder and add ' \
-                      'no-reply@18xx.games to your allowlist, or use "Resend verification email" below.')
+                      "#{ENV['MAIL_FROM']} to your allowlist, or use \"Resend verification email\" below.")
           end
 
           login_user(user)
@@ -45,7 +45,7 @@ class Api
           {
             flash_opts: {
               message: 'Account created! Check your email (including spam) to verify your account ' \
-                       'before logging in. Add no-reply@18xx.games to your allowlist so our emails ' \
+                       "before logging in. Add #{ENV['MAIL_FROM']} to your allowlist so our emails " \
                        'are not blocked.',
               color: 'lightgreen',
             },
@@ -70,7 +70,7 @@ class Api
             base_url: r.base_url
           )
           # Remove once we verify email sends as expected
-          Mail.send(user, '18xx.games Forgotten Password', html)
+          Mail.send(user, '18xx Workshop Forgotten Password', html)
           { result: true }
         end
 
@@ -214,7 +214,7 @@ class Api
 
     link = "#{base_url}/verify?email=#{Rack::Utils.escape(user.email)}&hash=#{user.verification_hashes[1]}"
     html = ASSETS.html('assets/app/mail/verify.rb', user: user.to_h, link: link)
-    Mail.send(user, '18xx.games Verify Your Email', html)
+    Mail.send(user, '18xx Workshop Verify Your Email', html)
   rescue StandardError => e
     API_LOGGER.error("Failed to send verification email to #{user&.email}: #{e}")
   end
