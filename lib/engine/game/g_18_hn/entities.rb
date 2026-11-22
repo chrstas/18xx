@@ -341,7 +341,7 @@ module Engine
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
             reserved_shares: [10],
             city: 0,
-            color: '#F7848D',
+            color: '#f7848d',
             text_color: 'black',
           },
           {

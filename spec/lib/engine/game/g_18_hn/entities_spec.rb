@@ -77,7 +77,7 @@ module Engine
             expected = {
               'WEG' => ['#199d4a', :black],
               'FWN' => [:purple, '#ffffff'],
-              'FHB' => ['#F7848D', 'black'],
+              'FHB' => ['#f7848d', 'black'],
               'VB' => ['#a05a2c', '#ffffff'],
             }
 
