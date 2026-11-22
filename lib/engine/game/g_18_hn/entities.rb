@@ -80,7 +80,7 @@ module Engine
             ],
           },
           {
-            name: 'Frankfurter Lokalbahn AG',
+            name: 'Frankfurter Lokalbahnen AG',
             sym: 'FL',
             value: 50,
             revenue: 0,
