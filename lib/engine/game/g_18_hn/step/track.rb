@@ -18,13 +18,7 @@ module Engine
           end
 
           def process_lay_tile(action)
-            entity = action.entity
-            hex = action.hex
-            unless @game.hex_operating_rights?(entity, hex)
-              raise GameError, 'Cannot lay track without operating rights in the selected region'
-            end
-            raise GameError, 'Only the FL private may build in Frankfurt' if @game.frankfurt_track_blocked?(hex)
-
+            check_track_rights!(action.entity, action.hex)
             super
             @game.check_obligations!
           end

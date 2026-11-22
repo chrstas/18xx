@@ -8,6 +8,13 @@ module Engine
       module Tracker
         # no include of Engine::Step::Tracker: the host steps have it, and Opal would insert it a second time
 
+        def check_track_rights!(entity, hex)
+          unless @game.hex_operating_rights?(entity, hex)
+            raise GameError, 'Cannot lay track without operating rights in the selected region'
+          end
+          raise GameError, 'Only the FL private may build in Frankfurt' if @game.frankfurt_track_blocked?(hex)
+        end
+
         # 8.4.2: no track may lead into the Rhine or the Main estuary
         def hex_neighbor_exists?(entity, hex, edge)
           return false if @game.bridge_edges(hex).include?(edge)

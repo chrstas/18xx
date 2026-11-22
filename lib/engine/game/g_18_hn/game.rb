@@ -692,6 +692,7 @@ module Engine
 
         # the F/W and F/E labels also bind private companies, which lay with special = true
         def upgrades_to?(from, to, special = false, selected_company: nil)
+          special = false if regular_tile_lay?(selected_company)
           frankfurt = self.class::FRANKFURT_HEXES.include?(from.hex&.name)
           return false if frankfurt && !upgrades_to_correct_label?(from, to)
           # special skips the base town and city count; only the Frankfurt tiles may change it
@@ -699,6 +700,11 @@ module Engine
                           (from.towns.size != to.towns.size || from.cities.size != to.cities.size)
 
           without_bridge_paths(from) { super }
+        end
+
+        def regular_tile_lay?(company)
+          ability = company&.all_abilities&.find { |candidate| candidate.type == :tile_lay }
+          !ability.nil? && !ability.special
         end
 
         def bridge_name(index)
