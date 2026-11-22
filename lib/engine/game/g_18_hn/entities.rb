@@ -273,7 +273,7 @@ module Engine
           {
             float_percent: 50,
             sym: 'SB',
-            name: 'Starkenburg Bahn',
+            name: 'Starkenburger Bahn',
             logo: '18_hn/SB',
             tokens: [0, 40, 100],
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
@@ -303,11 +303,11 @@ module Engine
           {
             float_percent: 50,
             sym: 'VB',
-            name: 'Vogelsberg-Bahn',
+            name: 'Vogelsbergbahn',
             logo: '18_hn/VB',
             tokens: [0, 40, 100],
             coordinates: 'F17',
-            color: :brown,
+            color: '#a05a2c',
           },
           {
             float_percent: 50,
@@ -318,13 +318,13 @@ module Engine
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
             reserved_shares: [10],
             coordinates: 'J9',
-            color: :'#ADD8E6',
-            text_color: :green,
+            color: '#199d4a',
+            text_color: :black,
           },
           {
             float_percent: 50,
             sym: 'LTB',
-            name: 'Lahntal-Bahn',
+            name: 'Lahntalbahn',
             logo: '18_hn/LTB',
             tokens: [0, 40, 100],
             coordinates: 'H7',
@@ -341,7 +341,8 @@ module Engine
             ipo_shares: [20, 10, 10, 10, 10, 10, 10, 10],
             reserved_shares: [10],
             city: 0,
-            color: :purple,
+            color: '#F7848D',
+            text_color: 'black',
           },
           {
             float_percent: 50,
@@ -355,7 +356,7 @@ module Engine
           {
             float_percent: 50,
             sym: 'WLB',
-            name: 'Waldecksche Landesbahn',
+            name: "Waldeck'sche Landesbahn",
             logo: '18_hn/WLB',
             tokens: [0, 40, 100],
             coordinates: 'C14',
@@ -372,7 +373,7 @@ module Engine
             logo: '18_hn/FWN',
             tokens: [0, 40, 100],
             coordinates: 'C18',
-            color: :lightgreen,
+            color: :purple,
           },
         ].freeze
       end

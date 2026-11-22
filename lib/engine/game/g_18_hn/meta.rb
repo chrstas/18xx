@@ -14,7 +14,7 @@ module Engine
         GAME_DISPLAY_TITLE = '18HN'
 
         GAME_DESIGNER = 'Karsten Ockenfels and Dirk Steiner'
-        GAME_IMPLEMENTER = 'bsnrl and Volker Schnell'
+        GAME_IMPLEMENTER = 'bsnrl, Volker Schnell and Christian Stasius'
         GAME_INFO_URL = 'https://github.com/tobymao/18xx/wiki/18HN'
         GAME_LOCATION = 'Hesse, Germany'
         GAME_PUBLISHER = nil
