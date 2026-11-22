@@ -86,7 +86,7 @@ end
 MessageBus.subscribe '/test_notification' do |msg|
   user_id = msg.data
   user = User[user_id]
-  send_webhook_notification(user, 'This is a test notification from 18xx.games.')
+  send_webhook_notification(user, 'This is a test notification from 18xx Workshop.')
 end
 
 MessageBus.subscribe '/delete_user' do |msg|
@@ -128,7 +128,7 @@ MessageBus.subscribe '/turn' do |msg|
   )
 
   users.each do |user|
-    Mail.send(user, "18xx.games Game: #{game.title} - #{game.id} - #{data['type']}", html)
+    Mail.send(user, "18xx Workshop Game: #{game.title} - #{game.id} - #{data['type']}", html)
     QUEUE_LOGGER.info("mail sent for game: #{game.id} to user: #{user.id}")
     user.settings['email_sent'] = Time.now.to_i
     user.save
