@@ -11,14 +11,11 @@ module Engine
         DEV_STAGE = :prealpha
         PROTOTYPE = true
 
-        GAME_DISPLAY_TITLE = '18HN'
-
         GAME_DESIGNER = 'Karsten Ockenfels and Dirk Steiner'
         GAME_IMPLEMENTER = 'bsnrl, Volker Schnell and Christian Stasius'
-        GAME_INFO_URL = 'https://github.com/tobymao/18xx/wiki/18HN'
         GAME_LOCATION = 'Hesse, Germany'
         GAME_PUBLISHER = nil
-        GAME_RULES_URL = 'https://github.com/tobymao/18xx/wiki/18HN'
+        GAME_RULES_URL = 'https://boardgamegeek.com/filepage/322816/rulebook-en'
         GAME_SUBTITLE = 'Hessen & Nassau'
         GAME_TITLE = '18HN'
 
@@ -27,7 +24,7 @@ module Engine
           {
             sym: :Seidler,
             short_name: 'Seidler & Siebrecht',
-            desc: 'new minor, allow one building with costs',
+            desc: 'Adds the private Seidler & Siebrecht to the auction; each player starts with 10 more',
           },
         ].freeze
       end
