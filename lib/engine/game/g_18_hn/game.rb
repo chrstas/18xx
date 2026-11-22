@@ -697,8 +697,14 @@ module Engine
           # special skips the base town and city count; only the Frankfurt tiles may change it
           return false if special && !frankfurt &&
                           (from.towns.size != to.towns.size || from.cities.size != to.cities.size)
+          return false if regular_tile_lay?(selected_company) && !upgrades_to_correct_label?(from, to)
 
           without_bridge_paths(from) { super }
+        end
+
+        def regular_tile_lay?(company)
+          ability = company&.all_abilities&.find { |candidate| candidate.type == :tile_lay }
+          !ability.nil? && !ability.special
         end
 
         def bridge_name(index)

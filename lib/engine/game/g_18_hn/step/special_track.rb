@@ -12,13 +12,30 @@ module Engine
 
           FRANKFURT_INCOME = 10
 
+          def available_hex(entity, hex)
+            return super unless @game.regular_tile_lay?(entity)
+
+            track_step.available_hex(@round.current_operator, hex)
+          end
+
+          def hex_neighbors(entity, hex)
+            return super unless @game.regular_tile_lay?(entity)
+
+            track_step.hex_neighbors(@round.current_operator, hex)
+          end
+
           def process_lay_tile(action)
+            check_track_rights!(@round.current_operator, action.hex) if @game.regular_tile_lay?(action.entity)
             super
             add_frankfurt_income(action.entity)
             @game.check_obligations!
           end
 
           private
+
+          def track_step
+            @round.steps.find { |step| step.is_a?(G18HN::Step::Track) }
+          end
 
           # 5.3: the FL earns 10 per Frankfurt tile it lays; the ability's count of 4 caps this at 40
           def add_frankfurt_income(company)

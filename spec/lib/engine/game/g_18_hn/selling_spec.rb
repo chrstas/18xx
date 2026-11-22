@@ -775,8 +775,15 @@ module Engine
             { 'SB' => [%w[L11 M10 N11]], 'MNB' => [%w[N11 O10], %w[N11 M10 L11]], 'HLB' => [%w[K8 K6 K4]] }
           end
 
+          let(:cash_before_brown) { [380, 620, 540] }
+
           # Leaves BE, FB, TB and OB open until MNB buys the first 5 train
           def play_into_brown
+            play_to_first_five
+            act(train_action(game.current_entity, [:depot]))
+          end
+
+          def play_to_first_five
             { b => 'SB', a => 'MNB', c => 'HLB' }.each do |player, id|
               turn_of(player)
               par(player, id, 100)
@@ -797,7 +804,7 @@ module Engine
               play_until_operating
               operate
             end
-            expect([a, b, c].map(&:cash)).to eq([380, 620, 540])
+            expect([a, b, c].map(&:cash)).to eq(cash_before_brown)
             play_until_stock
 
             par_and_buy(b, 'WLB', 70, 3)
@@ -819,10 +826,28 @@ module Engine
             operate('SB' => [[:depot]], 'MNB' => [[:depot]])
             play_until_operating
             advance_to_buy_train('MNB', { 'FHB' => [['MNB', 1]] }, { 'WLB' => wlb_lays.last })
-            act(train_action(game.current_entity, [:depot]))
           end
 
           before { play_into_brown }
+
+          context 'with the Seidler variant' do
+            let(:game) { build_game(players: players, id: 1, optional_rules: [:Seidler]) }
+            let(:cash_before_brown) { [550, 440, 690] }
+            let(:ss) { game.company_by_id('SS') }
+
+            def play_into_brown
+              play_to_first_five
+            end
+
+            it 'closes SS unused with the first 5 train' do
+              expect(ss.owner).to eq(c)
+              expect(ss.all_abilities.map { |ability| [ability.type, ability.count] }).to eq([[:tile_lay, 1]])
+
+              act(train_action(game.current_entity, [:depot]))
+              expect(game.phase.name).to eq('5')
+              expect(ss).to be_closed
+            end
+          end
 
           it 'exchanges the four remaining privates' do
             expect(game.phase.name).to eq('5')
