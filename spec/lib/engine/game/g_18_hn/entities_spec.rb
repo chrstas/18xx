@@ -71,6 +71,34 @@ module Engine
             end
           end
         end
+
+        context 'corporation cards' do
+          it 'colors WEG, FWN, FHB and VB as the designer specified' do
+            expected = {
+              'WEG' => ['#199d4a', :black],
+              'FWN' => [:purple, '#ffffff'],
+              'FHB' => ['#f7848d', 'black'],
+              'VB' => ['#a05a2c', '#ffffff'],
+            }
+
+            expected.each do |id, (color, text_color)|
+              corporation = game.corporation_by_id(id)
+
+              expect([corporation.color, corporation.text_color]).to eq([color, text_color]), id
+            end
+          end
+
+          it 'spells SB, VB, LTB and WLB as in the rules' do
+            expected = {
+              'SB' => 'Starkenburger Bahn',
+              'VB' => 'Vogelsbergbahn',
+              'LTB' => 'Lahntalbahn',
+              'WLB' => "Waldeck'sche Landesbahn",
+            }
+
+            expected.each { |id, name| expect(game.corporation_by_id(id).full_name).to eq(name) }
+          end
+        end
       end
     end
   end
