@@ -28,7 +28,8 @@ module Engine
             sym: 'HB',
             value: 20,
             revenue: 5,
-            desc: 'lay free special tile in Bad Homburg with the first 5-Train.',
+            desc: 'At start of brown (first 5-train) the owner may lay the brown Bad Homburg tile for free; ' \
+                  'the private then closes. If declined, any company may lay it later for 40M.',
             abilities: [
               { type: 'blocks_hexes', owner_type: 'player', hexes: ['I10'] },
               { type: 'close', on_phase: 'never' },
@@ -301,7 +302,7 @@ module Engine
             logo: '18_hn/HLB',
             tokens: [0, 40, 100],
             coordinates: 'K8',
-            color: :white,
+            color: '#d3d3d3',
             text_color: 'black',
           },
           {

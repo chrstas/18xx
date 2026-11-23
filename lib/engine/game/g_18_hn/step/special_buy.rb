@@ -25,6 +25,13 @@ module Engine
             'Concessions, Rights & Bridges'
           end
 
+          def item_str(item)
+            text = "Buy #{item.description}"
+            company = concession_company(item)
+            text += " (#{company.owner.name})" if company
+            "#{text} (#{@game.format_currency(item.cost)})"
+          end
+
           def process_special_buy(action)
             return process_bridge(action, bridge_items.index(action.item), false) if bridge_items.include?(action.item)
             return process_bridge(action, free_bridge_items.index(action.item), true) if free_bridge_items.include?(action.item)
@@ -54,6 +61,11 @@ module Engine
           private
 
           attr_reader :concession_items, :bridge_items, :free_bridge_items
+
+          def concession_company(item)
+            id, = concession_items.find { |_id, candidate| candidate == item }
+            @game.concession_companies[id] if id
+          end
 
           def paid_bridge?(entity)
             @game.buying_power(entity) >= @game.class::BRIDGE_COST

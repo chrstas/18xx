@@ -15,26 +15,6 @@ module Engine
         let(:b) { game.player_by_id('b') }
         let(:c) { game.player_by_id('c') }
 
-        # process_action swallows GameError, so re-raise it
-        def act(action)
-          game.process_action(action)
-          raise game.exception if game.exception
-        end
-
-        def auction_all
-          while game.round.is_a?(Engine::Round::Auction)
-            step = game.round.active_step
-            entity = game.current_entity
-            company = step.send(:auctioning)
-            if company && step.send(:highest_bid, company)
-              act(Action::Pass.new(entity))
-            else
-              target = company || step.companies.first
-              act(Action::Bid.new(entity, company: target, price: step.min_bid(target)))
-            end
-          end
-        end
-
         def turn_of(entity)
           act(Action::Pass.new(game.current_entity)) until game.current_entity == entity
         end
