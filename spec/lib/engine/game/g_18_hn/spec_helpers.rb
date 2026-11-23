@@ -14,6 +14,24 @@ module Engine
           game.phase.next! until game.phase.name == target
         end
 
+        def act(action)
+          game.process_action(action)
+          raise game.exception if game.exception
+        end
+
+        def auction_all
+          while game.round.is_a?(Engine::Round::Auction)
+            step = game.round.active_step
+            company = step.send(:auctioning)
+            if company && step.send(:highest_bid, company)
+              act(Action::Pass.new(game.current_entity))
+            else
+              target = company || step.companies.first
+              act(Action::Bid.new(game.current_entity, company: target, price: step.min_bid(target)))
+            end
+          end
+        end
+
         def lay(entity, hex_id, tile_name, rotation)
           tile = game.tiles.find { |t| t.name == tile_name }
           act(Action::LayTile.new(entity, tile: tile, hex: game.hex_by_id(hex_id), rotation: rotation))

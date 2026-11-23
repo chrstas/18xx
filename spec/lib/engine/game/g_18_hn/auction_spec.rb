@@ -14,12 +14,6 @@ module Engine
         let(:game) { build_game(players: players, id: 1, optional_rules: optional_rules) }
         let(:order) { game.players.dup }
 
-        # process_action swallows GameError, so re-raise it
-        def act(action)
-          game.process_action(action)
-          raise game.exception if game.exception
-        end
-
         def step
           game.round.active_step
         end

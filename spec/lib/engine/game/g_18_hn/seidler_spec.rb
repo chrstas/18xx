@@ -19,24 +19,6 @@ module Engine
         let(:vb) { game.corporation_by_id('VB') }
         let(:fwn) { game.corporation_by_id('FWN') }
 
-        def act(action)
-          game.process_action(action)
-          raise game.exception if game.exception
-        end
-
-        def auction_all
-          while game.round.is_a?(Engine::Round::Auction)
-            step = game.round.active_step
-            company = step.send(:auctioning)
-            if company && step.send(:highest_bid, company)
-              act(Action::Pass.new(game.current_entity))
-            else
-              target = company || step.companies.first
-              act(Action::Bid.new(game.current_entity, company: target, price: step.min_bid(target)))
-            end
-          end
-        end
-
         def turn_of(entity)
           act(Action::Pass.new(game.current_entity)) until game.current_entity == entity
         end
