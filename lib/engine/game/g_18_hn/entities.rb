@@ -301,7 +301,7 @@ module Engine
             logo: '18_hn/HLB',
             tokens: [0, 40, 100],
             coordinates: 'K8',
-            color: :white,
+            color: '#d3d3d3',
             text_color: 'black',
           },
           {
