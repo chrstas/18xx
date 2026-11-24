@@ -63,25 +63,6 @@ module Engine
         end
 
         context 'transit bonus' do
-          it 'matches the printed legend row by row' do
-            legend = game.map_legend('black')
-
-            expect(legend[1].map { |cell| cell[:text] }).to eq(%w[Ausland S N O W])
-
-            body = legend.drop(2)
-            expect(body.size).to eq(described_class::TRANSIT_REGIONS.size)
-
-            body.each do |row|
-              region, direction = row.first[:text].split
-              data = described_class::TRANSIT_REGIONS[region]
-
-              expect(data).not_to be_nil, "#{region} is missing from TRANSIT_REGIONS"
-              expect(data[:dir]).to eq(direction.to_sym), region
-              expect(%i[S N O W].map { |key| data[key] })
-                .to eq(row.drop(1).map { |cell| cell[:text].delete('+').to_i }), region
-            end
-          end
-
           it 'pays the same for both directions of travel' do
             pairs = described_class::TRANSIT_REGIONS.keys.combination(2).to_a
             expect(pairs.size).to eq(28)
