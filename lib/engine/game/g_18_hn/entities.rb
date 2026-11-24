@@ -5,6 +5,8 @@ module Engine
     module G18HN
       module Entities
         HANAU_HEX = 'J15'
+        TAUNUS_HEXES = %w[I4 I6 I8].freeze
+        ODENWALD_HEXES = %w[M12 N13 O12].freeze
 
         # 11.1: obligated track routes in printed order, each stop lists the hexes that count for it
         OBLIGATIONS = {
@@ -20,7 +22,7 @@ module Engine
         }.freeze
 
         # 11.1: SB's obligation is to build all three Odenwald hexes
-        BUILT_OBLIGATIONS = { 'SB' => %w[M12 N13 O12] }.freeze
+        BUILT_OBLIGATIONS = { 'SB' => ODENWALD_HEXES }.freeze
 
         COMPANIES = [
           {
@@ -176,7 +178,7 @@ module Engine
               {
                 type: 'tile_lay',
                 owner_type: 'player',
-                hexes: %w[I4 I6 I8],
+                hexes: TAUNUS_HEXES,
                 tiles: %w[3 4 58 7 8 9],
                 when: 'exchange',
                 discount: 40,
@@ -205,7 +207,7 @@ module Engine
               {
                 type: 'tile_lay',
                 owner_type: 'player',
-                hexes: %w[M12 N13 O12],
+                hexes: ODENWALD_HEXES,
                 tiles: %w[3 4 58 7 8 9],
                 discount: 40,
                 when: 'exchange',

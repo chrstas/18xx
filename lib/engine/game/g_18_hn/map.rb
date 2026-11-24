@@ -246,14 +246,14 @@ module Engine
             ['F7'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
             ['F21'] => 'upgrade=cost:40,terrain:mountain;frame=color:plum',
             ['G6'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
-            ['I4'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
-            ['I6'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
-            ['M12'] => 'upgrade=cost:40,terrain:mountain;frame=color:white',
+            ['I4'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen;icon=image:18_hn/taunus,sticky:1',
+            ['I6'] => 'upgrade=cost:40,terrain:mountain;frame=color:lightgreen;icon=image:18_hn/taunus,sticky:1',
+            ['M12'] => 'upgrade=cost:40,terrain:mountain;frame=color:white;icon=image:18_hn/odenwald,sticky:1',
             ['A18'] => 'town=revenue:0;upgrade=cost:20,terrain:water;frame=color:plum',
             ['H5'] => 'town=revenue:0;upgrade=cost:20,terrain:water;frame=color:lightgreen',
             ['G4'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
-            ['O12'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:white',
-            ['N13'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:white',
+            ['O12'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:white;icon=image:18_hn/odenwald,sticky:1',
+            ['N13'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:white;icon=image:18_hn/odenwald,sticky:1',
             ['E18'] => 'city=revenue:0;upgrade=cost:20,terrain:water;frame=color:plum',
             ['H7'] => 'city=revenue:0;upgrade=cost:20,terrain:water;frame=color:lightgreen',
             ['C18'] => 'city=revenue:0;upgrade=cost:20,terrain:water;label=KGD;frame=color:plum',
@@ -262,7 +262,8 @@ module Engine
             ['C14'] => 'city=revenue:0;frame=color:yellow',
             ['D13'] => 'upgrade=cost:20,terrain:water;border=edge:4,type:impassable;frame=color:yellow',
             ['D15'] => 'town=revenue:0;upgrade=cost:60,terrain:water|mountain;' \
-                       'border=edge:0,type:impassable;border=edge:1,type:impassable;frame=color:yellow',
+                       'border=edge:0,type:impassable;border=edge:1,type:impassable;frame=color:yellow;' \
+                       'icon=image:18_hn/edertal,sticky:1',
             ['D17'] => 'town=revenue:0;upgrade=cost:20,terrain:water;frame=color:plum',
             ['D21'] => 'city=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:plum',
             ['E12'] => 'upgrade=cost:20,terrain:water;frame=color:yellow',
@@ -283,7 +284,7 @@ module Engine
             ['H15'] => 'frame=color:white',
             ['H17'] => 'frame=color:white',
             ['H19'] => 'frame=color:plum',
-            ['I8'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:lightgreen',
+            ['I8'] => 'town=revenue:0;upgrade=cost:40,terrain:mountain;frame=color:lightgreen;icon=image:18_hn/taunus,sticky:1',
             ['I12'] => 'town=revenue:0;frame=color:white',
             ['I14'] => 'frame=color:white',
             ['I16'] => 'town=revenue:0;frame=color:plum',
@@ -341,421 +342,43 @@ module Engine
             ['G10'] => 'city=revenue:yellow_20|green_30|brown_40;path=a:2,b:_0;path=a:4,b:_0;path=a:0,b:_0',
           },
         }.freeze
+        TRANSIT_LEGEND_NAMES = {
+          'Pfalz' => 'Pfa',
+          'Baden' => 'Bad',
+          'Hannover' => 'Han',
+          'Ostwestfalen' => 'OWf',
+          'Südwestfalen' => 'SWf',
+          'Rheinland' => 'Rhl',
+          'Thüringen' => 'Thü',
+          'Franken' => 'Fra',
+        }.freeze
+
         LAYOUT = :pointy
         def show_map_legend?
           true
         end
 
         def map_legend(font_color, *_extra_colors)
+          regions = self.class::TRANSIT_REGIONS
+          header_style = { border: '1px solid' }
           [
-            # table-wide props
-            {
-              style: {
-                margin: '0.5rem 0 0.5rem 0',
-                border: '1px solid',
-                borderCollapse: 'collapse',
-              },
-            },
-            # header
+            { style: { margin: '0.5rem 0 0.5rem 0', border: '1px solid', borderCollapse: 'collapse' } },
             [
-              { text: 'Ausland', props: { style: { border: '1px solid' } } },
-              { text: 'S', props: { style: { border: '1px solid' } } },
-              { text: 'N', props: { style: { border: '1px solid' } } },
-              { text: 'O', props: { style: { border: '1px solid' } } },
-              { text: 'W', props: { style: { border: '1px solid' } } },
+              { text: 'Transit-Bonus', props: { style: header_style } },
+              *regions.keys.map { |name| { text: TRANSIT_LEGEND_NAMES[name], props: { style: header_style } } },
             ],
-            # body
-            [
-              {
-                text: 'Pfalz S',
-                props: { style: { border: "1px solid #{font_color}", color: 'white', backgroundColor: 'grey' } },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }, {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }
-            ],
-            [
-              {
-                text: 'Baden S',
-                props: { style: { border: "1px solid #{font_color}", color: 'black', backgroundColor: 'white' } },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }, {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }
-            ],
-            [
-              {
-                text: 'Hannover N',
-                props: { style: { border: "1px solid #{font_color}", color: 'white', backgroundColor: 'grey' } },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }, {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }
-            ],
-            [
-              {
-                text: 'Ostwestfalen N',
-                props: { style: { border: "1px solid #{font_color}", color: 'black', backgroundColor: 'white' } },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }, {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }
-            ], [
-              {
-                text: 'Südwestfalen W',
-                props: { style: { border: "1px solid #{font_color}", color: 'white', backgroundColor: 'grey' } },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }, {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }
-            ],
-            [
-              {
-                text: 'Rheinland W',
-                props: { style: { border: "1px solid #{font_color}", color: 'black', backgroundColor: 'white' } },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+60',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }, {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }
-            ], [
-              {
-                text: 'Thüringen O',
-                props: { style: { border: "1px solid #{font_color}", color: 'white', backgroundColor: 'grey' } },
-              },
-              {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              },
-              {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }, {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'white',
-                    backgroundColor: 'grey',
-                  },
-                },
-              }
-            ],
-            [
-              {
-                text: 'Franken O',
-                props: { style: { border: "1px solid #{font_color}", color: 'black', backgroundColor: 'white' } },
-              },
-              {
-                text: '+10',
-                props: {
-                  style: {
-                    textAlign: 'center',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+40',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              },
-              {
-                text: '+30',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }, {
-                text: '+20',
-                props: {
-                  style: {
-                    textAlign: 'right',
-                    border: "1px solid #{font_color}",
-                    color: 'black',
-                    backgroundColor: 'white',
-                  },
-                },
-              }
-            ]
+            *regions.each_with_index.map { |(name, region), index| transit_legend_row(name, region, index, font_color) },
           ]
+        end
+
+        def transit_legend_row(name, region, index, font_color)
+          colors = index.even? ? { color: 'white', backgroundColor: 'grey' } : { color: 'black', backgroundColor: 'white' }
+          style = { border: "1px solid #{font_color}", **colors }
+          cells = self.class::TRANSIT_REGIONS.keys.map do |other|
+            text = other == name ? '' : "+#{transit_bonus(name, other)}"
+            { text: text, props: { style: { **style, textAlign: 'right' } } }
+          end
+          [{ text: "#{name} #{region[:dir]}", props: { style: style } }, *cells]
         end
       end
     end
