@@ -516,6 +516,7 @@ module Engine
           clear_graph
           # 8.4.3: from brown on (phase 5) a route through another country needs no concession
           check_obligations! if name == '5'
+          @hexes.each { |hex| hex.tile.reframe!(nil) } if name == '5'
         end
 
         def obligation_met?(corporation)
