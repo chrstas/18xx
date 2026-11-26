@@ -265,7 +265,6 @@ module Engine
           companies
         end
 
-        # grant_right!'s ability is display only; @granted_rights is authoritative
         def granted_right?(corporation, concession_id)
           @granted_rights[corporation.id].include?(concession_id)
         end
@@ -282,12 +281,8 @@ module Engine
 
         def grant_right!(corporation, concession_company)
           @granted_rights[corporation.id] << concession_company.id
-          ability = Ability::Base.new(
-            type: 'base',
-            description: "#{concession_company.name} Rights",
-          )
-          corporation.add_ability(ability)
           clear_graph_for_entity(corporation)
+          update_rights_abilities!(corporation)
         end
 
         def can_buy_right?(entity, concession_id)
@@ -329,6 +324,8 @@ module Engine
           fhb = corporation_by_id('FHB')
           fhb.tokens << Engine::Token.new(fhb, type: :hanau)
           hex_by_id(self.class::HANAU_HEX).tile.add_reservation!(fhb, 0)
+          @rights_abilities = {}
+          @corporations.each { |corporation| update_rights_abilities!(corporation) }
         end
 
         # ch. 6: nobody opened a private other than HB, so the privates earn once before the auction goes on
@@ -514,13 +511,20 @@ module Engine
 
         def after_phase_change(name)
           clear_graph
+          return unless name == '5'
+
           # 8.4.3: from brown on (phase 5) a route through another country needs no concession
-          check_obligations! if name == '5'
-          @hexes.each { |hex| hex.tile.reframe!(nil) } if name == '5'
+          check_obligations!
+          @hexes.each { |hex| hex.tile.reframe!(nil) }
+          @corporations.each { |corporation| update_rights_abilities!(corporation) }
         end
 
         def obligation_met?(corporation)
           @obligations_met.include?(corporation)
+        end
+
+        def founded_in_brown?(corporation)
+          @founded_in_brown.include?(corporation)
         end
 
         # 7.3: a company founded after brown starts gets its full capital when it floats
@@ -532,7 +536,7 @@ module Engine
         # 7.3: five times par on float, the other five once the obligation is met
         def float_corporation(corporation)
           @log << "#{corporation.name} floats"
-          shares = @founded_in_brown.include?(corporation) || obligation_met?(corporation) ? 10 : 5
+          shares = founded_in_brown?(corporation) || obligation_met?(corporation) ? 10 : 5
           @bank.spend(corporation.par_price.price * shares, corporation)
           @log << "#{corporation.name} receives #{format_currency(corporation.cash)}"
         end
@@ -544,7 +548,7 @@ module Engine
 
             @obligations_met << corporation
             @log << "#{corporation.name} completes its obligated track route"
-            next if !corporation.floated? || @founded_in_brown.include?(corporation)
+            next if !corporation.floated? || founded_in_brown?(corporation)
 
             amount = corporation.par_price.price * 5
             @bank.spend(amount, corporation)
@@ -1011,6 +1015,55 @@ module Engine
           a = self.class::TRANSIT_REGIONS[region_a]
           b = self.class::TRANSIT_REGIONS[region_b]
           a[b[:dir]] + b[a[:dir]]
+        end
+
+        def status_array(corporation)
+          status = obligation_status(corporation)
+          status ? [status] : nil
+        end
+
+        private
+
+        def obligation_status(corporation)
+          return if founded_in_brown?(corporation) || (borders_gone? && !corporation.ipoed)
+          return 'Obligation: fulfilled' if obligation_met?(corporation)
+
+          if (hexes = self.class::BUILT_OBLIGATIONS[corporation.id])
+            return "Obligation: build Odenwald (#{hexes.map { |id| hex_location_name(id) }.join(', ')})"
+          end
+
+          stops = self.class::OBLIGATIONS[corporation.id].map { |ids| stop_name(ids) }
+          "Obligation: #{stops.join(' → ')}"
+        end
+
+        def stop_name(hex_ids)
+          names = hex_ids.map { |id| hex_location_name(id) }.uniq
+          return names.first if names.one?
+
+          prefixes = names.map { |name| name.split('/').first }.uniq
+          prefixes.one? ? prefixes.first : names.join('/')
+        end
+
+        def hex_location_name(hex_id)
+          location_name(hex_id) || hex_id
+        end
+
+        def update_rights_abilities!(corporation)
+          Array(@rights_abilities[corporation]).each { |ability| corporation.remove_ability(ability) }
+          @rights_abilities[corporation] = rights_descriptions(corporation).map do |description|
+            ability = Ability::Base.new(type: 'base', description: description)
+            corporation.add_ability(ability)
+            ability
+          end
+        end
+
+        def rights_descriptions(corporation)
+          return granted_right?(corporation, 'FC') ? [concession_companies['FC'].name] : [] if borders_gone?
+
+          bought = self.class::CONCESSIONS.select { |id| granted_right?(corporation, id) }
+          home = operating_rights(corporation) - ['ALL'] - bought.filter_map { |id| self.class::CONCESSION_REGIONS[id] }
+          home.map { |region| "#{concession_companies[self.class::CONCESSION_REGIONS.key(region)].name} (home)" } +
+            bought.map { |id| concession_companies[id].name }
         end
       end
     end
