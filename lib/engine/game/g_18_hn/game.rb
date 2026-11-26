@@ -265,7 +265,6 @@ module Engine
           companies
         end
 
-        # grant_right!'s ability is display only; @granted_rights is authoritative
         def granted_right?(corporation, concession_id)
           @granted_rights[corporation.id].include?(concession_id)
         end
@@ -512,10 +511,12 @@ module Engine
 
         def after_phase_change(name)
           clear_graph
+          return unless name == '5'
+
           # 8.4.3: from brown on (phase 5) a route through another country needs no concession
-          check_obligations! if name == '5'
-          @hexes.each { |hex| hex.tile.reframe!(nil) } if name == '5'
-          @corporations.each { |corporation| update_rights_abilities!(corporation) } if name == '5'
+          check_obligations!
+          @hexes.each { |hex| hex.tile.reframe!(nil) }
+          @corporations.each { |corporation| update_rights_abilities!(corporation) }
         end
 
         def obligation_met?(corporation)
@@ -535,7 +536,7 @@ module Engine
         # 7.3: five times par on float, the other five once the obligation is met
         def float_corporation(corporation)
           @log << "#{corporation.name} floats"
-          shares = @founded_in_brown.include?(corporation) || obligation_met?(corporation) ? 10 : 5
+          shares = founded_in_brown?(corporation) || obligation_met?(corporation) ? 10 : 5
           @bank.spend(corporation.par_price.price * shares, corporation)
           @log << "#{corporation.name} receives #{format_currency(corporation.cash)}"
         end
@@ -547,7 +548,7 @@ module Engine
 
             @obligations_met << corporation
             @log << "#{corporation.name} completes its obligated track route"
-            next if !corporation.floated? || @founded_in_brown.include?(corporation)
+            next if !corporation.floated? || founded_in_brown?(corporation)
 
             amount = corporation.par_price.price * 5
             @bank.spend(amount, corporation)
@@ -1024,7 +1025,7 @@ module Engine
         private
 
         def obligation_status(corporation)
-          return if founded_in_brown?(corporation)
+          return if founded_in_brown?(corporation) || (borders_gone? && !corporation.ipoed)
           return 'Obligation: fulfilled' if obligation_met?(corporation)
 
           if (hexes = self.class::BUILT_OBLIGATIONS[corporation.id])
@@ -1044,7 +1045,7 @@ module Engine
         end
 
         def hex_location_name(hex_id)
-          self.class::LOCATION_NAMES[hex_id] || hex_id
+          location_name(hex_id) || hex_id
         end
 
         def update_rights_abilities!(corporation)
