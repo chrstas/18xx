@@ -65,6 +65,14 @@ module Engine
 
             trains | other_trains(entity)
           end
+
+          def cheapest_train_price(corporation)
+            buyable_trains(corporation)
+              .select(&:from_depot?)
+              .flat_map { |train| buyable_train_variants(train, corporation) }
+              .map { |variant| variant[:price] }
+              .min || 0
+          end
         end
       end
     end

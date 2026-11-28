@@ -2472,6 +2472,12 @@ module Engine
             expect(game.round.active_step.buyable_train_variants(train, mnb).map { |v| v[:name] }).to eq(%w[3 3+3])
           end
 
+          it 'counts the 3+3 as the cheapest depot train once the sale was needed for it' do
+            emergency(31)
+            sell(a, 'LTB', 20)
+            expect(game.round.active_step.cheapest_train_price(mnb)).to eq(180)
+          end
+
           it 'still offers another corporation\'s train after the sale' do
             emergency(1)
             sell(a, 'LTB', 20)
