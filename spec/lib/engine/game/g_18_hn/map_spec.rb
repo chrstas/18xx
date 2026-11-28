@@ -16,8 +16,8 @@ module Engine
 
         context 'regions' do
           it 'assigns every hex on the map to exactly one region' do
-            expect(game.hexes.size).to eq(94)
-            expect(region_entries.size).to eq(94)
+            expect(game.hexes.size).to eq(98)
+            expect(region_entries.size).to eq(98)
             expect(region_entries.sort).to eq(game.hexes.map(&:name).sort)
           end
 
@@ -127,7 +127,7 @@ module Engine
           end
 
           it 'builds the preprinted tile of every map hex' do
-            expect(described_class::HEXES.values.flat_map(&:keys).flatten.size).to eq(94)
+            expect(described_class::HEXES.values.flat_map(&:keys).flatten.size).to eq(98)
 
             described_class::HEXES.each do |color, definitions|
               definitions.each do |coordinates, code|
@@ -152,7 +152,7 @@ module Engine
           it 'leaves no white, yellow or green hex without a legal upgrade' do
             # E15: the labels T and O on the Taunus and Odenwald hexes made these dead ends
             open_hexes = game.hexes.select { |hex| later_colors.key?(hex.tile.color) }
-            expect(open_hexes.size).to eq(78)
+            expect(open_hexes.size).to eq(82)
 
             dead_ends = open_hexes.reject { |hex| game.tiles.any? { |tile| game.upgrades_to?(hex.tile, tile) } }
             expect(dead_ends.map(&:name)).to be_empty
