@@ -167,6 +167,10 @@ module Engine
         }.freeze
 
         LOCATION_NAMES = {
+          'A2' => 'Waldeck',
+          'A4' => 'Hessen-Kassel',
+          'A6' => 'Nassau',
+          'A8' => 'Hessen-Darmstadt',
           'A18' => 'Bad Karlshafen',
           'B15' => 'Arolsen',
           'B17' => 'Hofgeismar',
@@ -229,6 +233,10 @@ module Engine
 
         HEXES = {
           white: {
+            ['A2'] => 'frame=color:yellow',
+            ['A4'] => 'frame=color:plum',
+            ['A6'] => 'frame=color:lightgreen',
+            ['A8'] => 'frame=color:white',
             ['E16'] => 'frame=color:plum',
             ['L5'] => 'frame=color:white',
             ['L13'] => 'frame=color:white',
